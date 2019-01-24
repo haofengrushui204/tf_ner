@@ -75,7 +75,7 @@ def model_fn(features, labels, mode, params):
     # Word Embeddings
     word_ids = vocab_words.lookup(words)
     glove = np.load(params['glove'])['embeddings']  # np.array
-    variable = np.vstack([glove, [[0.]*params['dim']]])
+    variable = np.vstack([glove, [[0.] * params['dim']]])
     variable = tf.Variable(variable, dtype=tf.float32, trainable=False)
     embeddings = tf.nn.embedding_lookup(variable, word_ids)
     embeddings = tf.layers.dropout(embeddings, rate=dropout, training=training)
@@ -154,11 +154,14 @@ if __name__ == '__main__':
     with Path('results/params.json').open('w') as f:
         json.dump(params, f, indent=4, sort_keys=True)
 
+
     def fwords(name):
         return str(Path(DATADIR, '{}.words.txt'.format(name)))
 
+
     def ftags(name):
         return str(Path(DATADIR, '{}.tags.txt'.format(name)))
+
 
     # Estimator, train and evaluate
     train_inpf = functools.partial(input_fn, fwords('train'), ftags('train'),
@@ -186,6 +189,7 @@ if __name__ == '__main__':
                 for word, tag, tag_pred in zip(words, tags, preds['tags']):
                     f.write(b' '.join([word, tag, tag_pred]) + b'\n')
                 f.write(b'\n')
+
 
     for name in ['train', 'testa', 'testb']:
         write_predictions(name)
