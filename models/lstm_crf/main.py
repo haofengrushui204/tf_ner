@@ -12,13 +12,14 @@ import numpy as np
 import tensorflow as tf
 from tf_metrics import precision, recall, f1
 
-DATADIR = '../../data/example'
+root_dir = "/data/kongyy/nlp/tf_ner_guillaumegenthial/"
+DATADIR = root_dir + 'example'
 
 # Logging
-Path('results').mkdir(exist_ok=True)
+Path(root_dir + 'results').mkdir(exist_ok=True)
 tf.logging.set_verbosity(logging.INFO)
 handlers = [
-    logging.FileHandler('results/main.log'),
+    logging.FileHandler(root_dir + 'results/main.log'),
     logging.StreamHandler(sys.stdout)
 ]
 logging.getLogger('tensorflow').handlers = handlers
@@ -139,7 +140,7 @@ def model_fn(features, labels, mode, params):
 if __name__ == '__main__':
     # Params
     params = {
-        'dim': 300,
+        'dim': 100,
         'dropout': 0.5,
         'num_oov_buckets': 1,
         'epochs': 25,
@@ -151,7 +152,7 @@ if __name__ == '__main__':
         'tags': str(Path(DATADIR, 'vocab.tags.txt')),
         'glove': str(Path(DATADIR, 'glove.npz'))
     }
-    with Path('results/params.json').open('w') as f:
+    with Path(root_dir + 'results/params.json').open('w') as f:
         json.dump(params, f, indent=4, sort_keys=True)
 
 
@@ -169,7 +170,7 @@ if __name__ == '__main__':
     eval_inpf = functools.partial(input_fn, fwords('testa'), ftags('testa'))
 
     cfg = tf.estimator.RunConfig(save_checkpoints_secs=120)
-    estimator = tf.estimator.Estimator(model_fn, 'results/model', cfg, params)
+    estimator = tf.estimator.Estimator(model_fn, root_dir + 'results/model', cfg, params)
     Path(estimator.eval_dir()).mkdir(parents=True, exist_ok=True)
     hook = tf.contrib.estimator.stop_if_no_increase_hook(
         estimator, 'f1', 500, min_steps=8000, run_every_secs=120)
@@ -177,10 +178,11 @@ if __name__ == '__main__':
     eval_spec = tf.estimator.EvalSpec(input_fn=eval_inpf, throttle_secs=120)
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
 
+
     # Write predictions to file
     def write_predictions(name):
-        Path('results/score').mkdir(parents=True, exist_ok=True)
-        with Path('results/score/{}.preds.txt'.format(name)).open('wb') as f:
+        Path(root_dir + 'results/score').mkdir(parents=True, exist_ok=True)
+        with Path(root_dir + 'results/score/{}.preds.txt'.format(name)).open('wb') as f:
             test_inpf = functools.partial(input_fn, fwords(name), ftags(name))
             golds_gen = generator_fn(fwords(name), ftags(name))
             preds_gen = estimator.predict(test_inpf)

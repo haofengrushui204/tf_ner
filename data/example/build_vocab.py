@@ -16,6 +16,7 @@ if __name__ == '__main__':
     def words(name):
         return '{}.words.txt'.format(name)
 
+
     print('Build vocab words (may take a while)')
     counter_words = Counter()
     for n in ['train', 'testa', 'testb']:
@@ -43,11 +44,13 @@ if __name__ == '__main__':
             f.write('{}\n'.format(c))
     print('- done. Found {} chars'.format(len(vocab_chars)))
 
+
     # 3. Tags
     # Get all tags from the training set
 
     def tags(name):
         return '{}.tags.txt'.format(name)
+
 
     print('Build vocab tags (may take a while)')
     vocab_tags = set()

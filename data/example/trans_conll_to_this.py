@@ -33,7 +33,7 @@ def trans(data_path, words_path, tags_path):
 
 
 if __name__ == "__main__":
-    data_type = "train"
+    data_type = "dev"
     trans("E:/nlp_experiment/typical_opinion_extract/ner/{}.txt".format(data_type),
           "E:/nlp_experiment/typical_opinion_extract/ner/{}.words.txt".format(data_type),
           "E:/nlp_experiment/typical_opinion_extract/ner/{}.tags.txt".format(data_type),
