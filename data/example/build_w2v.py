@@ -11,10 +11,12 @@ from pathlib import Path
 
 import numpy as np
 
+root_dir = "/data/kongyy/nlp/tf_ner_guillaumegenthial/"
+DATADIR = root_dir + 'example/'
 
 if __name__ == '__main__':
     # Load vocab
-    with Path('vocab.words.txt').open() as f:
+    with Path(DATADIR + 'vocab.words.txt').open() as f:
         word_to_idx = {line.strip(): idx for idx, line in enumerate(f)}
     size_vocab = len(word_to_idx)
 
@@ -24,9 +26,9 @@ if __name__ == '__main__':
     # Get relevant glove vectors
     found = 0
     print('Reading W2V file (may take a while)')
-    with Path('/data/kongyy/nlp/word_vectors/ypical_opinion_token_100.txt').open() as f:
+    with open('/data/kongyy/nlp/word_vectors/typical_opinion_token_100.txt', "r",encoding="utf8", errors="ignore") as f:
         for line_idx, line in enumerate(f):
-            if line_idx % 100000 == 0:
+            if line_idx % 1000 == 0:
                 print('- At line {}'.format(line_idx))
             line = line.strip().split()
             if len(line) != 100 + 1:
@@ -40,4 +42,4 @@ if __name__ == '__main__':
     print('- done. Found {} vectors for {} words'.format(found, size_vocab))
 
     # Save np.array to file
-    np.savez_compressed('w2v.npz', embeddings=embeddings)
+    np.savez_compressed(root_dir + 'w2v.npz', embeddings=embeddings)

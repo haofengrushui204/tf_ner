@@ -29,7 +29,7 @@ def parse_fn(line_words, line_tags):
     # Encode in Bytes for TF
     words = [w.encode() for w in line_words.strip().split()]
     tags = [t.encode() for t in line_tags.strip().split()]
-    assert len(words) == len(tags), "Words and tags lengths don't match"
+    assert len(words) == len(tags), "Words and tags lengths don't match " +  line_words + " tag " +  line_tags
     return (words, len(words)), tags
 
 
@@ -144,13 +144,13 @@ if __name__ == '__main__':
         'dropout': 0.5,
         'num_oov_buckets': 1,
         'epochs': 25,
-        'batch_size': 20,
+        'batch_size': 32,
         'buffer': 15000,
         'lstm_size': 100,
         'words': str(Path(DATADIR, 'vocab.words.txt')),
         'chars': str(Path(DATADIR, 'vocab.chars.txt')),
         'tags': str(Path(DATADIR, 'vocab.tags.txt')),
-        'glove': str(Path(DATADIR, 'glove.npz'))
+        'glove': str(Path(DATADIR, 'w2v.npz'))
     }
     with Path(root_dir + 'results/params.json').open('w') as f:
         json.dump(params, f, indent=4, sort_keys=True)
@@ -167,7 +167,7 @@ if __name__ == '__main__':
     # Estimator, train and evaluate
     train_inpf = functools.partial(input_fn, fwords('train'), ftags('train'),
                                    params, shuffle_and_repeat=True)
-    eval_inpf = functools.partial(input_fn, fwords('testa'), ftags('testa'))
+    eval_inpf = functools.partial(input_fn, fwords('test'), ftags('test'))
 
     cfg = tf.estimator.RunConfig(save_checkpoints_secs=120)
     estimator = tf.estimator.Estimator(model_fn, root_dir + 'results/model', cfg, params)
@@ -193,5 +193,5 @@ if __name__ == '__main__':
                 f.write(b'\n')
 
 
-    for name in ['train', 'testa', 'testb']:
+    for name in ['train', 'test']:
         write_predictions(name)
