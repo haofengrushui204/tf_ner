@@ -26,7 +26,8 @@ if __name__ == '__main__':
     # Get relevant glove vectors
     found = 0
     print('Reading W2V file (may take a while)')
-    with open('/data/kongyy/nlp/word_vectors/typical_opinion_token_100.txt', "r",encoding="utf8", errors="ignore") as f:
+    with open('/data/kongyy/nlp/word_vectors/typical_opinion_token_100.txt', "r", encoding="utf8",
+              errors="ignore") as f:
         for line_idx, line in enumerate(f):
             if line_idx % 1000 == 0:
                 print('- At line {}'.format(line_idx))

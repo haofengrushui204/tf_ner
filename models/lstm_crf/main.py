@@ -29,7 +29,7 @@ def parse_fn(line_words, line_tags):
     # Encode in Bytes for TF
     words = [w.encode() for w in line_words.strip().split()]
     tags = [t.encode() for t in line_tags.strip().split()]
-    assert len(words) == len(tags), "Words and tags lengths don't match " +  line_words + " tag " +  line_tags
+    assert len(words) == len(tags), "Words and tags lengths don't match " + line_words + " tag " + line_tags
     return (words, len(words)), tags
 
 
