@@ -13,6 +13,7 @@ from random import shuffle
 import random
 import jieba
 import re
+import pandas as pd
 
 max_seq_len = 64
 
@@ -167,17 +168,40 @@ def stats_sentence_len_dist(data_path):
         print(tag_not_in_sentence_cnt)
 
 
-def get_opinion_dist(data_path="E:/work/merge-tag.xlsx"):
+def org_opinoin(data_path="E:/nlp_experiment/typical_opinion_extract/merge-tag-v2.xlsx"):
     """
     对细粒度的 Opinion 进行归并，归并后的opinion 称为 typical_opinion
     :param data_path:
     :return:
     """
-    import pandas as pd
-    opinion_dist_df = pd.read_excel(data_path, sheet_name="类别展开", names=["opinion", "cnt", "category"])
-    typical_opinion_dist = opinion_dist_df.groupby("category").sum().sort_values(by=["cnt"], ascending=False)
+    opinion_df = pd.read_excel(data_path, sheet_name="类别展开", names=["opinion", "cnt", "stdopinion"], header=None)
+    stdopinion_cnt_dist = opinion_df.groupby("stdopinion", as_index=False).sum().sort_values(by=["cnt"],
+                                                                                             ascending=False)
 
-    return typical_opinion_dist
+    opinion_raw2std = {}
+    stdopinion_cnt = {}
+    opinion_std2id = {}
+    stdopinion_id2cnt = {}
+    opinion_id2std = {}
+
+    for index, row in opinion_df.iterrows():
+        opinion_raw2std[row["opinion"].strip()] = row["stdopinion"].strip()
+
+    for index, row in stdopinion_cnt_dist.iterrows():
+        stdopinion_cnt[row["stdopinion"].strip()] = row["cnt"]
+
+    opinion_cnt_sorted = sorted(stdopinion_cnt.items(), key=lambda x: x[1], reverse=True)
+    for idx, r in enumerate(opinion_cnt_sorted):
+        opinion_std2id[r[0]] = idx + 1
+        opinion_id2std[idx + 1] = r[0]
+
+    for stdopinion, cnt in stdopinion_cnt.items():
+        stdopinion_id2cnt[opinion_std2id[stdopinion]] = cnt
+
+    for k, v in stdopinion_id2cnt.items():
+        print(k, opinion_id2std[k], v)
+
+    return stdopinion_id2cnt, opinion_raw2std, opinion_std2id
 
 
 def get_label_dist(data_path):
@@ -195,7 +219,7 @@ def get_label_dist(data_path):
     print(sum(dict(Counter(label_list)).values()))
 
 
-def generate_samples(data_path, tag_cnt_path, tag_stdtag_path, dst_path, level="char"):
+def generate_samples(data_path, dst_path, level="char"):
     """
     生成样本，每种意见对应的样本量差异较大，需要采样
     :param data_path:
@@ -205,17 +229,20 @@ def generate_samples(data_path, tag_cnt_path, tag_stdtag_path, dst_path, level="
     :param level:
     :return:
     """
-    tag_dict, tag_cnt = read_tag_dict(tag_cnt_path, tag_stdtag_path)
+    # tag_dict, tag_cnt = read_tag_dict(tag_cnt_path, tag_stdtag_path)
+    stdopinion_id2cnt, opinion_raw2std, opinion_std2id = org_opinoin()
     corpus = []
     tag_dist = {}
-    min_cnt = min(list(tag_cnt.values())) * 3
+    # min_cnt = min(list(stdopinion_id2cnt.values())) * 3
+    min_cnt = 2000
+
     with open(data_path, "r", encoding='utf8') as file_read:
         for line in file_read:
-            tag, tagcontent, text = line.strip().replace(" ", "").split("\t")
-            tag = re.sub("\(\d+\)", "", line.split("\t")[0]).replace("(", "（").replace(")", "）")
+            opinion, opinion_desc, text = line.strip().replace(" ", "").split("\t")
+            opinion = re.sub("\(\d+\)", "", opinion).replace("(", "（").replace(")", "）")
 
             if len(text) > max_seq_len:
-                sentence = break_long_sentence(text, tagcontent)
+                sentence = break_long_sentence(text, opinion_desc)
                 if sentence not in ["-1", "-2"]:
                     text = sentence
                 else:
@@ -224,27 +251,30 @@ def generate_samples(data_path, tag_cnt_path, tag_stdtag_path, dst_path, level="
             if len(text) == 0:
                 continue
 
-            if tag not in tag_dict:
+            if opinion not in opinion_raw2std:
                 continue
 
-            tag_id = tag_dict[tag]
+            opinion_id = opinion_std2id[opinion_raw2std[opinion]]
 
-            if tag_cnt[tag_id] > min_cnt and random.random() > min_cnt / tag_cnt[tag_id]:
+            if stdopinion_id2cnt[opinion_id] > min_cnt and random.random() > min_cnt / stdopinion_id2cnt[opinion_id]:
                 continue
 
-            if tag_id not in tag_dist:
-                tag_dist[tag_id] = 0
-            tag_dist[tag_id] += 1
+            if stdopinion_id2cnt[opinion_id] < min_cnt:
+                continue
+
+            if opinion_id not in tag_dist:
+                tag_dist[opinion_id] = 0
+            tag_dist[opinion_id] += 1
 
             try:
-                rst = re.search(re.escape(tagcontent), text)
+                rst = re.search(re.escape(opinion_desc), text)
             except:
                 print(text)
                 traceback.print_exc()
                 continue
             if rst is not None:
                 rst = rst.span()
-                corpus.append([rst, tag_id, text])
+                corpus.append([rst, opinion_id, text])
 
     corpus_dict = {}
     for item in corpus:
@@ -325,7 +355,7 @@ def check_completeness_of_labelling(opinion_path, opinion_kws_path, opinion_comp
             for line in file_read:
                 tag, tagcontent, text = line.strip().replace(" ", "").split("\t")
                 # tag = re.sub("\(\d+\)", "", line.split("\t")[0]).replace("(", "（").replace(")", "）")
-                content_residual = re.sub(tagcontent, "", text)
+                content_residual = re.sub(re.escape(tagcontent), "", text)
 
                 if re_kws.search(content_residual) is not None:
                     continue
@@ -340,16 +370,41 @@ def check_coverage_rate_of_tokens():
     """
 
 
+def get_raw_tag_dist(typical_opinion_corpus, std_tag_path):
+    _, raw_opinion_to_std, _ = org_opinoin(std_tag_path)
+    tag_cnt = {}
+    with open(typical_opinion_corpus, "r", encoding="utf8") as file_read:
+        for line in file_read:
+            tag = line.strip().replace(" ", "").split("\t")[0]
+            tag = re.sub("\(\d+\)", "", tag).replace("(", "（").replace(")", "）")
+            if tag not in raw_opinion_to_std:
+                print(tag)
+            else:
+                std_tag = raw_opinion_to_std[tag]
+                if std_tag not in tag_cnt:
+                    tag_cnt[std_tag] = 0
+                tag_cnt[std_tag] += 1
+
+    print(len(tag_cnt))
+    rst = sorted(tag_cnt.items(), key=lambda x: x[1], reverse=True)
+    for r in rst:
+        print(r[0], "\t", r[1])
+
+
 if __name__ == "__main__":
     # get_tag_set("E:/nlp_experiment/typical_opinion_extract/typical_opinion_corpus")
 
     # stats_sentence_len_dist("E:/nlp_experiment/typical_opinion_extract/typical_opinion_corpus")
 
     generate_samples("E:/nlp_experiment/typical_opinion_extract/typical_opinion_corpus",
-                     "E:/nlp_experiment/typical_opinion_extract/std_tag_cnt.txt",
-                     "E:/nlp_experiment/typical_opinion_extract/merge_tag.txt",
                      "E:/nlp_experiment/typical_opinion_extract/ner/",
-                     level="token")
+                     level="char")
 
     # get_label_dist("E:/nlp_experiment/typical_opinion_extract/ner_corpus")
-    # tag_dist()
+
+    # check_completeness_of_labelling("E:/nlp_experiment/typical_opinion_extract/typical_opinion_corpus",
+    #                                 "E:/nlp_experiment/typical_opinion_extract/opinion_kws.txt",
+    #                                 "E:/nlp_experiment/typical_opinion_extract/opinion_completeness")
+
+    # get_raw_tag_dist("E:/nlp_experiment/typical_opinion_extract/opinion_completeness",
+    #                  "E:/nlp_experiment/typical_opinion_extract/merge-tag-v2.xlsx")
