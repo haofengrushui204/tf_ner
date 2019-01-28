@@ -114,32 +114,6 @@ def get_tag_set(data_path):
             print(tag, "\t", c)
 
 
-def read_tag_dict(tag_cnt_path, tag_stdtag_path):
-    """
-    归并后的 typical opinion 以及 id
-    :param tag_cnt_path:
-    :param tag_stdtag_path:
-    :return:
-    """
-    tag_dict = {}
-    tag_name2id = {}
-    tag_cnt_dict = {}
-    with open(tag_cnt_path, "r", encoding="utf8") as file_read:
-        for line in file_read:
-            items = line.strip().split("\t")
-            if int(items[-1]) > 2000:
-                tag_name2id[items[1]] = items[0]
-                tag_cnt_dict[items[0]] = int(items[-1])
-
-    with open(tag_stdtag_path, "r", encoding="utf8") as file_read:
-        for line in file_read:
-            tag_name, tag_cnt, tag_std = line.strip().replace(" ", "").split("\t")
-            if tag_std in tag_name2id:
-                tag_dict[tag_name] = tag_name2id[tag_std]
-
-    return tag_dict, tag_cnt_dict
-
-
 def stats_sentence_len_dist(data_path):
     """
     统计 口碑中包含典型意见的 sentence 的 长度分布
@@ -168,18 +142,18 @@ def stats_sentence_len_dist(data_path):
         print(tag_not_in_sentence_cnt)
 
 
-def org_opinoin(data_path="E:/nlp_experiment/typical_opinion_extract/merge-tag-v2.xlsx"):
+def org_opinoin(data_path):
     """
-    对细粒度的 Opinion 进行归并，归并后的opinion 称为 typical_opinion
+    对细粒度的 Opinion 进行归并，归并后的opinion 称为 std_opinion
     :param data_path:
     :return:
     """
     opinion_df = pd.read_excel(data_path, sheet_name="类别展开", names=["opinion", "cnt", "stdopinion"], header=None)
-    stdopinion_cnt_dist = opinion_df.groupby("stdopinion", as_index=False).sum().sort_values(by=["cnt"],
-                                                                                             ascending=False)
+    stdopinion_cnt_df = opinion_df.groupby("stdopinion", as_index=False) \
+        .sum() \
+        .sort_values(by=["cnt"], ascending=False)
 
     opinion_raw2std = {}
-    stdopinion_cnt = {}
     opinion_std2id = {}
     stdopinion_id2cnt = {}
     opinion_id2std = {}
@@ -187,16 +161,12 @@ def org_opinoin(data_path="E:/nlp_experiment/typical_opinion_extract/merge-tag-v
     for index, row in opinion_df.iterrows():
         opinion_raw2std[row["opinion"].strip()] = row["stdopinion"].strip()
 
-    for index, row in stdopinion_cnt_dist.iterrows():
-        stdopinion_cnt[row["stdopinion"].strip()] = row["cnt"]
-
-    opinion_cnt_sorted = sorted(stdopinion_cnt.items(), key=lambda x: x[1], reverse=True)
-    for idx, r in enumerate(opinion_cnt_sorted):
-        opinion_std2id[r[0]] = idx + 1
-        opinion_id2std[idx + 1] = r[0]
-
-    for stdopinion, cnt in stdopinion_cnt.items():
-        stdopinion_id2cnt[opinion_std2id[stdopinion]] = cnt
+    index = 1
+    for _, row in stdopinion_cnt_df.iterrows():
+        opinion_std2id[row["stdopinion"].strip()] = index
+        opinion_id2std[index] = row["stdopinion"].strip()
+        stdopinion_id2cnt[index] = row["cnt"]
+        index += 1
 
     for k, v in stdopinion_id2cnt.items():
         print(k, opinion_id2std[k], v)
@@ -219,22 +189,18 @@ def get_label_dist(data_path):
     print(sum(dict(Counter(label_list)).values()))
 
 
-def generate_samples(data_path, dst_path, level="char"):
+def generate_samples(data_path, dst_path, level="char", min_cnt=2000):
     """
     生成样本，每种意见对应的样本量差异较大，需要采样
     :param data_path:
-    :param tag_cnt_path:
-    :param tag_stdtag_path:
     :param dst_path:
     :param level:
     :return:
     """
-    # tag_dict, tag_cnt = read_tag_dict(tag_cnt_path, tag_stdtag_path)
-    stdopinion_id2cnt, opinion_raw2std, opinion_std2id = org_opinoin()
+    stdopinion_id2cnt, opinion_raw2std, opinion_std2id = org_opinoin(work_dir + "merge-tag-v2.xlsx")
     corpus = []
     tag_dist = {}
     # min_cnt = min(list(stdopinion_id2cnt.values())) * 3
-    min_cnt = 2000
 
     with open(data_path, "r", encoding='utf8') as file_read:
         for line in file_read:
@@ -283,7 +249,7 @@ def generate_samples(data_path, dst_path, level="char"):
         corpus_dict[item[-1]].append(item[:2])
     text_list = list(corpus_dict.keys())
 
-    print("tag cnt dist")
+    print("opinion cnt desc")
     for k, v in tag_dist.items():
         print(k, v)
 
@@ -341,8 +307,8 @@ def check_completeness_of_labelling(opinion_path, opinion_kws_path, opinion_comp
     """
     校验每个样本标注的完整性， 方式是一种粗检测方式：check key words
     存在很多的样本，对某个label，仅仅标注的了部分
-    :param typical_opinion_corpus 包含典型意见的全部文本
-    :param opinion_kws 典型意见对应的关键词
+    :param opinion_path 包含典型意见的全部文本
+    :param opinion_kws_path 典型意见对应的关键词
     :return: 具有完整典型意见标注的样本
     """
     with open(opinion_kws_path, "r", encoding="utf8") as file_read:
@@ -391,20 +357,69 @@ def get_raw_tag_dist(typical_opinion_corpus, std_tag_path):
         print(r[0], "\t", r[1])
 
 
+def stats_token(data_path, stdopinion):
+    """
+    给定 stdopinion, 统计该 opinion 对应的 token分布
+    :param data_path:
+    :param stdopinion:
+    :return:
+    """
+    stdopinion_id2cnt, opinion_raw2std, opinion_std2id = org_opinoin(work_dir + "merge-tag-v2.xlsx")
+    opinion_set = set([raw for (raw, std) in opinion_raw2std.items() if std == stdopinion])
+
+    token_freq = {}
+    with open(data_path, "r", encoding="utf8") as file_read:
+        for line in file_read:
+            try:
+                opinion, opinion_desc, text = line.strip().split("\t")
+                if re.sub("\(\d+\)", "", opinion.replace(" ", "")) in opinion_set:
+                    tokens = text.split(" ")
+                    for token in tokens:
+                        if len(re.sub("([\u4E00-\u9FD5]+)", "", token)) == 0:
+                            # if len(token) > 0:
+                            if token not in token_freq:
+                                token_freq[token] = 0
+                            token_freq[token] += 1
+            except:
+                print(line.strip())
+
+    token_freq_sorted = sorted(token_freq.items(), key=lambda x: x[1], reverse=True)
+    with open(work_dir + stdopinion + "_token_freq.txt", "w", encoding="utf8") as file_write:
+        for (token, cnt) in token_freq_sorted:
+            file_write.write(token + "\t" + str(cnt) + "\n")
+
+
+def labelling_by_machine(src_path, dst_path):
+    with open(src_path, "r", encoding="utf8") as file_read, open(dst_path, "w", encoding="utf8") as file_write:
+        labeled_opinion_desc_set = set()
+        sub_text_set = set()
+        re_sent_cut = re.compile(",|，|。|？|\?|!|！|;|；")
+        for line in file_read:
+            try:
+                _, opinion_desc, text = line.strip().split("\t")
+                labeled_opinion_desc_set.add(opinion_desc)
+                sents = re_sent_cut.split(text)
+                sub_text_set |= set(sents)
+            except:
+                print(line.strip())
+        sub_text_list = list(sub_text_set)
+        labeled_opinion_desc_list = list(labeled_opinion_desc_set)
+
+
 if __name__ == "__main__":
-    # get_tag_set("E:/nlp_experiment/typical_opinion_extract/typical_opinion_corpus")
+    work_dir = "E:/work/nlp_experiment/typical_opinion_extract/"
+    # get_tag_set(work_dir + "typical_opinion_corpus")
 
-    # stats_sentence_len_dist("E:/nlp_experiment/typical_opinion_extract/typical_opinion_corpus")
+    # stats_sentence_len_dist(work_dir + "typical_opinion_corpus")
 
-    generate_samples("E:/nlp_experiment/typical_opinion_extract/typical_opinion_corpus",
-                     "E:/nlp_experiment/typical_opinion_extract/ner/",
-                     level="char")
+    # generate_samples(work_dir + "typical_opinion_corpus", work_dir + "ner/", level="char")
 
-    # get_label_dist("E:/nlp_experiment/typical_opinion_extract/ner_corpus")
+    stats_token(work_dir + "typical_opinion_corpus_seg", "腿部空间")
 
-    # check_completeness_of_labelling("E:/nlp_experiment/typical_opinion_extract/typical_opinion_corpus",
-    #                                 "E:/nlp_experiment/typical_opinion_extract/opinion_kws.txt",
-    #                                 "E:/nlp_experiment/typical_opinion_extract/opinion_completeness")
+    # get_label_dist(work_dir + "ner_corpus")
 
-    # get_raw_tag_dist("E:/nlp_experiment/typical_opinion_extract/opinion_completeness",
-    #                  "E:/nlp_experiment/typical_opinion_extract/merge-tag-v2.xlsx")
+    # check_completeness_of_labelling(work_dir + "typical_opinion_corpus",
+    #                                 work_dir + "opinion_kws.txt",
+    #                                 work_dir + "opinion_completeness")
+
+    # get_raw_tag_dist(work_dir + "opinion_completeness", work_dir + "merge-tag-v2.xlsx")
