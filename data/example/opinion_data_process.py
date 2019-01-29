@@ -14,6 +14,10 @@ import random
 import jieba
 import re
 import pandas as pd
+import gensim
+from sif_sent2vec import SIFSent2Vec
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 
 max_seq_len = 64
 
@@ -168,8 +172,8 @@ def org_opinoin(data_path):
         stdopinion_id2cnt[index] = row["cnt"]
         index += 1
 
-    for k, v in stdopinion_id2cnt.items():
-        print(k, opinion_id2std[k], v)
+    # for k, v in stdopinion_id2cnt.items():
+    #     print(k, opinion_id2std[k], v)
 
     return stdopinion_id2cnt, opinion_raw2std, opinion_std2id
 
@@ -189,12 +193,13 @@ def get_label_dist(data_path):
     print(sum(dict(Counter(label_list)).values()))
 
 
-def generate_samples(data_path, dst_path, level="char", min_cnt=2000):
+def generate_samples(data_path, dst_path, level="char", min_cnt=3000, is_std=False):
     """
     生成样本，每种意见对应的样本量差异较大，需要采样
     :param data_path:
     :param dst_path:
     :param level:
+    :param is_std: corpus中的opinion是不是stdopinion
     :return:
     """
     stdopinion_id2cnt, opinion_raw2std, opinion_std2id = org_opinoin(work_dir + "merge-tag-v2.xlsx")
@@ -204,7 +209,7 @@ def generate_samples(data_path, dst_path, level="char", min_cnt=2000):
 
     with open(data_path, "r", encoding='utf8') as file_read:
         for line in file_read:
-            opinion, opinion_desc, text = line.strip().replace(" ", "").split("\t")
+            opinion, opinion_desc, text = line.strip().replace(" ", "").replace("　", "").split("\t")
             opinion = re.sub("\(\d+\)", "", opinion).replace("(", "（").replace(")", "）")
 
             if len(text) > max_seq_len:
@@ -217,16 +222,21 @@ def generate_samples(data_path, dst_path, level="char", min_cnt=2000):
             if len(text) == 0:
                 continue
 
-            if opinion not in opinion_raw2std:
+            if not is_std and opinion not in opinion_raw2std:
+                continue
+            if is_std and opinion not in opinion_std2id:
                 continue
 
             opinion_id = opinion_std2id[opinion_raw2std[opinion]]
 
+            if opinion_id > 50:
+                continue
+
             if stdopinion_id2cnt[opinion_id] > min_cnt and random.random() > min_cnt / stdopinion_id2cnt[opinion_id]:
                 continue
 
-            if stdopinion_id2cnt[opinion_id] < min_cnt:
-                continue
+            # if stdopinion_id2cnt[opinion_id] < min_cnt:
+            #     continue
 
             if opinion_id not in tag_dist:
                 tag_dist[opinion_id] = 0
@@ -329,13 +339,6 @@ def check_completeness_of_labelling(opinion_path, opinion_kws_path, opinion_comp
                 file_write.write(line)
 
 
-def check_coverage_rate_of_tokens():
-    """
-    检查采样后的样本中 token or char 的覆盖率
-    :return:
-    """
-
-
 def get_raw_tag_dist(typical_opinion_corpus, std_tag_path):
     _, raw_opinion_to_std, _ = org_opinoin(std_tag_path)
     tag_cnt = {}
@@ -389,32 +392,136 @@ def stats_token(data_path, stdopinion):
             file_write.write(token + "\t" + str(cnt) + "\n")
 
 
-def labelling_by_machine(src_path, dst_path):
+def load_embeddings(we_path):
+    """
+    'E:/Work/jobs/data/ner/vectors-segsentence.bin.gz'
+    :param we_path:
+    :return:
+    """
+
+    return gensim.models.KeyedVectors.load_word2vec_format(we_path, binary=False, unicode_errors="ignore")
+
+
+def get_sif_vec(corpus, we_path, embedding_size=200):
+    word_embeddings = load_embeddings(we_path)
+    sif_vec = SIFSent2Vec(corpus, word_embeddings, embedding_size, stop_words_set=None)  # list
+    return sif_vec.sentence_vecs
+
+
+def _cosine_similarity(seed_vecs, candidate_vecs):
+    X = np.array(seed_vecs)
+    # Y = np.array(candidate_vecs)
+    # print(X.shape, Y.shape)
+    return cosine_similarity(X, candidate_vecs)
+
+
+def show_result(cosine_matrix, seed_corpus, candidate_corpus, dst_path, topN=10):
+    rst = np.argsort(cosine_matrix)
+    with open(dst_path, "w", encoding="utf8") as file_write:
+        for idx, sentence in enumerate(seed_corpus):
+            idx_arr = rst[idx, -topN:]
+            score_arr = cosine_matrix[idx, idx_arr]
+            file_write.write("".join(sentence) + "\n")
+            for i in range(topN - 1, -1, -1):
+                file_write.write("\t" + "".join(candidate_corpus[idx_arr[i]]) + "\t" + str(score_arr[i]) + "\n")
+
+
+def labelling_by_machine(src_path, dst_path, we_path):
+    stdopinion_id2cnt, opinion_raw2std, opinion_std2id = org_opinoin(work_dir + "merge-tag-v2.xlsx")
+
     with open(src_path, "r", encoding="utf8") as file_read, open(dst_path, "w", encoding="utf8") as file_write:
         labeled_opinion_desc_set = set()
         sub_text_set = set()
+        opinion_desc_to_stdopinion = {}
         re_sent_cut = re.compile(",|，|。|？|\?|!|！|;|；")
         for line in file_read:
             try:
-                _, opinion_desc, text = line.strip().split("\t")
-                labeled_opinion_desc_set.add(opinion_desc)
-                sents = re_sent_cut.split(text)
-                sub_text_set |= set(sents)
+                opinion, opinion_desc, text = line.strip().split("\t")
+                opinion = re.sub("\(\d+\)", "", opinion.replace(" ", ""))
+                stdopinion = opinion_raw2std[opinion]
+                opinion_id = opinion_std2id[stdopinion]
+                if 32 < int(opinion_id) < 50:
+                    labeled_opinion_desc_set.add(opinion_desc)
+                    opinion_desc_to_stdopinion[opinion_desc] = stdopinion
+                    sents = re_sent_cut.split(text)
+                    sub_text_set |= set(sents)
             except:
                 print(line.strip())
+                traceback.print_exc()
         sub_text_list = list(sub_text_set)
         labeled_opinion_desc_list = list(labeled_opinion_desc_set)
+        print("sub_text_list len = ", len(sub_text_list))
+        print("labeled_opinion_desc_list len = ", len(labeled_opinion_desc_list))
+
+        sif_sent_vec = get_sif_vec(labeled_opinion_desc_list + sub_text_list, we_path, embedding_size=embedding_size)
+        assert len(sif_sent_vec) == len(sub_text_list) + len(labeled_opinion_desc_list)
+
+        labeled_opinion_desc_array = np.array(sif_sent_vec[:len(labeled_opinion_desc_list)])
+        text_vecs = sif_sent_vec[len(labeled_opinion_desc_list):]
+
+        batch_size = 100
+        batch_num = int(len(text_vecs) / batch_size) + 1
+        for i in range(batch_num):
+            cur_vecs = text_vecs[i * batch_size:(i + 1) * batch_size]
+            cosine_matrix = _cosine_similarity(cur_vecs, labeled_opinion_desc_array)
+            rst = np.argsort(cosine_matrix)
+            cur_texts = sub_text_list[i * batch_size:(i + 1) * batch_size]
+            for idx, sentence in enumerate(cur_texts):
+                idx_max = rst[idx, -1]
+                score = cosine_matrix[idx, idx_max]
+                # file_write.write("".join(sentence) + "\n")
+                file_write.write(
+                    str(opinion_desc_to_stdopinion[labeled_opinion_desc_list[idx_max]]) + "\t" + sentence + "\t" + str(
+                        score) + "\n")
+
+
+def check_model_results(data_path):
+    with open(data_path, "r", encoding="utf-8") as file_read, \
+            open(data_path[:-3] + "check", "w", encoding="utf8") as file_pred:
+        wlist = []
+        taglist_true = []
+        taglist_pred = []
+        for line in file_read:
+            if len(line.strip()) == 0:
+                if "".join(taglist_pred) != "".join(taglist_true):
+                    file_pred.write("\t".join(wlist) + "\n")
+                    file_pred.write("\t".join(taglist_true) + "\n")
+                    file_pred.write("\t".join(taglist_pred) + "\n")
+                wlist = []
+                taglist_true = []
+                taglist_pred = []
+            else:
+                items = line.rstrip("\n").split(" ")
+                if len(items) == 3:
+                    wlist.append(items[0])
+                else:
+                    wlist.append("")
+                taglist_true.append(items[1])
+                taglist_pred.append(items[2])
 
 
 if __name__ == "__main__":
-    work_dir = "E:/work/nlp_experiment/typical_opinion_extract/"
+    import platform
+
+    if platform.system() == "Windows":
+        work_dir = "E:/nlp_experiment/typical_opinion_extract/"
+    else:
+        work_dir = "/data/kongyy/nlp/tf_ner_guillaumegenthial/example/"
+
+    embedding_size = 100
+
     # get_tag_set(work_dir + "typical_opinion_corpus")
 
     # stats_sentence_len_dist(work_dir + "typical_opinion_corpus")
 
-    # generate_samples(work_dir + "typical_opinion_corpus", work_dir + "ner/", level="char")
+    # generate_samples(work_dir + "typical_opinion_corpus", work_dir + "sequence_label/", level="token")
 
-    stats_token(work_dir + "typical_opinion_corpus_seg", "腿部空间")
+    check_model_results(work_dir + "sequence_label/check/train.preds.txt")
+
+    # labelling_by_machine(work_dir + "typical_opinion_corpus_seg", work_dir + "typical_opinion_corpus_opt",
+    #                      we_path="/data/kongyy/nlp/word_vectors/typical_opinion_token_{}.txt".format(embedding_size))
+
+    # stats_token(work_dir + "typical_opinion_corpus_seg", "腿部空间")
 
     # get_label_dist(work_dir + "ner_corpus")
 
