@@ -193,13 +193,13 @@ def get_label_dist(data_path):
     print(sum(dict(Counter(label_list)).values()))
 
 
-def generate_samples(data_path, dst_path, level="char", min_cnt=3000, is_std=False):
+def generate_samples(data_path, dst_path, level="char", min_cnt=3000, is_std=False, stdopinion=""):
     """
     生成样本，每种意见对应的样本量差异较大，需要采样
     :param data_path:
     :param dst_path:
     :param level:
-    :param is_std: corpus中的opinion是不是stdopinion
+    :param is_std: corpus中的opinion列是不是stdopinion
     :return:
     """
     stdopinion_id2cnt, opinion_raw2std, opinion_std2id = org_opinoin(work_dir + "merge-tag-v2.xlsx")
@@ -226,17 +226,25 @@ def generate_samples(data_path, dst_path, level="char", min_cnt=3000, is_std=Fal
                 continue
             if is_std and opinion not in opinion_std2id:
                 continue
+            if is_std and opinion != stdopinion:
+                continue
 
-            opinion_id = opinion_std2id[opinion_raw2std[opinion]]
+            # 筛选给定 stdopinion 对应的语料
+            if stdopinion != "" and not is_std and stdopinion != opinion_raw2std[opinion]:
+                continue
+            if stdopinion != "" and is_std and stdopinion != opinion:
+                continue
+
+            if not is_std:
+                opinion_id = opinion_std2id[opinion_raw2std[opinion]]
+            else:
+                opinion_id = opinion_std2id[opinion]
 
             if opinion_id > 50:
                 continue
 
             if stdopinion_id2cnt[opinion_id] > min_cnt and random.random() > min_cnt / stdopinion_id2cnt[opinion_id]:
                 continue
-
-            # if stdopinion_id2cnt[opinion_id] < min_cnt:
-            #     continue
 
             if opinion_id not in tag_dist:
                 tag_dist[opinion_id] = 0
@@ -398,7 +406,6 @@ def load_embeddings(we_path):
     :param we_path:
     :return:
     """
-
     return gensim.models.KeyedVectors.load_word2vec_format(we_path, binary=False, unicode_errors="ignore")
 
 
