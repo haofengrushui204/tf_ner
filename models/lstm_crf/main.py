@@ -178,7 +178,6 @@ if __name__ == '__main__':
     eval_spec = tf.estimator.EvalSpec(input_fn=eval_inpf, throttle_secs=120)
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
 
-
     # Write predictions to file
     def write_predictions(name):
         Path(root_dir + 'results/score').mkdir(parents=True, exist_ok=True)

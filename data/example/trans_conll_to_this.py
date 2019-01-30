@@ -33,8 +33,18 @@ def trans(data_path, words_path, tags_path):
 
 
 if __name__ == "__main__":
-    data_type = "test"
-    trans("E:/nlp_experiment/typical_opinion_extract/sequence_label/{}.txt".format(data_type),
-          "E:/nlp_experiment/typical_opinion_extract/sequence_label/{}.words.txt".format(data_type),
-          "E:/nlp_experiment/typical_opinion_extract/sequence_label/{}.tags.txt".format(data_type),
-          )
+    stdopinion = 16
+
+    for data_type in ["test", "train"]:
+        if len(stdopinion) == 0:
+            trans("E:/nlp_experiment/typical_opinion_extract/sequence_label/{}.txt".format(data_type),
+                  "E:/nlp_experiment/typical_opinion_extract/sequence_label/{}.words.txt".format(data_type),
+                  "E:/nlp_experiment/typical_opinion_extract/sequence_label/{}.tags.txt".format(data_type),
+                  )
+        else:
+            trans("E:/nlp_experiment/typical_opinion_extract/sequence_label/{}/{}.txt".format(stdopinion, data_type),
+                  "E:/nlp_experiment/typical_opinion_extract/sequence_label/{}/{}.words.txt".format(stdopinion,
+                                                                                                    data_type),
+                  "E:/nlp_experiment/typical_opinion_extract/sequence_label/{}/{}.tags.txt".format(stdopinion,
+                                                                                                   data_type),
+                  )

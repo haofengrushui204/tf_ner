@@ -10,10 +10,12 @@ import tensorflow as tf
 
 from main import model_fn
 
-LINE = 'John lives in New York'
-DATADIR = '../../data/example'
-PARAMS = './results/params.json'
-MODELDIR = './results/model'
+LINE = '风 噪 , 胎 噪 有 些 大 , 加 速 时 发 动 机 轰 鸣 声 大 （ 对 比 我 家 的 2 . 0 L 3 0 7 三 厢 ）'
+
+root_dir = "/data/kongyy/nlp/tf_ner_guillaumegenthial/"
+DATADIR = root_dir + 'example'
+PARAMS = root_dir + 'results/params.json'
+MODELDIR = root_dir + 'results/model'
 
 
 def pretty_print(line, preds):
@@ -44,7 +46,7 @@ if __name__ == '__main__':
     params['words'] = str(Path(DATADIR, 'vocab.words.txt'))
     params['chars'] = str(Path(DATADIR, 'vocab.chars.txt'))
     params['tags'] = str(Path(DATADIR, 'vocab.tags.txt'))
-    params['glove'] = str(Path(DATADIR, 'glove.npz'))
+    params['glove'] = str(Path(DATADIR, 'w2v.npz'))
 
     estimator = tf.estimator.Estimator(model_fn, MODELDIR, params=params)
     predict_inpf = functools.partial(predict_input_fn, LINE)

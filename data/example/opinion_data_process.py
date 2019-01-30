@@ -7,6 +7,7 @@ Created on 2019/1/16
 """
 import re
 import sys
+import os
 from collections import Counter
 import traceback
 from random import shuffle
@@ -17,6 +18,7 @@ import pandas as pd
 import gensim
 from sif_sent2vec import SIFSent2Vec
 import numpy as np
+from pathlib import Path
 from sklearn.metrics.pairwise import cosine_similarity
 
 max_seq_len = 64
@@ -273,6 +275,15 @@ def generate_samples(data_path, dst_path, level="char", min_cnt=3000, is_std=Fal
 
     shuffle(text_list)
     total = len(text_list)
+
+    if len(stdopinion) > 0:
+        dst_path = os.path.join(dst_path, str(opinion_id))
+    if not os.path.exists(dst_path):
+        os.mkdir(dst_path)
+
+    if not dst_path.endswith("/"):
+        dst_path += "/"
+
     with open(dst_path + "train.txt", "w", encoding="utf8") as file_train, \
             open(dst_path + "test.txt", "w", encoding="utf8") as file_test, \
             open(dst_path + "dev.txt", "w", encoding="utf8") as file_dev:
@@ -282,7 +293,7 @@ def generate_samples(data_path, dst_path, level="char", min_cnt=3000, is_std=Fal
             idx += 1
             if idx < total * 0.8:
                 file_write = file_train
-            elif idx < total * 1.0:
+            elif idx <= total * 1.0:
                 file_write = file_test
             else:
                 file_write = file_dev
@@ -318,7 +329,7 @@ def generate_samples(data_path, dst_path, level="char", min_cnt=3000, is_std=Fal
                 for i in range(len(wlist)):
                     file_write.write(wlist[i] + " " + tag_list[i] + "\n")
 
-            file_write.write("\n\n")
+            file_write.write("\n")
 
 
 def check_completeness_of_labelling(opinion_path, opinion_kws_path, opinion_completeness_path):
@@ -521,9 +532,11 @@ if __name__ == "__main__":
 
     # stats_sentence_len_dist(work_dir + "typical_opinion_corpus")
 
-    # generate_samples(work_dir + "typical_opinion_corpus", work_dir + "sequence_label/", level="token")
+    generate_samples(work_dir + "typical_opinion_corpus",
+                     work_dir + "sequence_label/",
+                     level="char", stdopinion="", min_cnt=3000, is_std=True)
 
-    check_model_results(work_dir + "sequence_label/check/train.preds.txt")
+    # check_model_results(work_dir + "sequence_label/check/train.preds.txt")
 
     # labelling_by_machine(work_dir + "typical_opinion_corpus_seg", work_dir + "typical_opinion_corpus_opt",
     #                      we_path="/data/kongyy/nlp/word_vectors/typical_opinion_token_{}.txt".format(embedding_size))
