@@ -195,6 +195,57 @@ def get_label_dist(data_path):
     print(sum(dict(Counter(label_list)).values()))
 
 
+def get_opinion_desc(data_path, stdopinion="", min_cnt=100):
+    """
+    选择仅仅包含有 opinion_desc 的文本
+    :param data_path:
+    :return:
+    """
+    stdopinion_id2cnt, opinion_raw2std, opinion_std2id = org_opinoin(work_dir + "merge-tag-v2.xlsx")
+    corpus = set()
+    tag_dist = {}
+
+    with open(data_path, "r", encoding='utf8') as file_read:
+        for line in file_read:
+            opinion, opinion_desc, text = line.strip().replace(" ", "").replace("　", "").split("\t")
+            opinion = re.sub("\(\d+\)", "", opinion).replace("(", "（").replace(")", "）")
+
+            if len(text) > max_seq_len:
+                sentence = break_long_sentence(text, opinion_desc)
+                if sentence not in ["-1", "-2"]:
+                    text = sentence
+                else:
+                    text = ""
+
+            if len(text) == 0:
+                continue
+
+            if opinion not in opinion_raw2std:
+                continue
+            if opinion_raw2std[opinion] == stdopinion:  # 不包含指定的stdopinion
+                continue
+
+            opinion_id = opinion_std2id[opinion_raw2std[opinion]]
+
+            if opinion_id > 50:
+                continue
+
+            if stdopinion_id2cnt[opinion_id] > min_cnt and random.random() > min_cnt / stdopinion_id2cnt[opinion_id]:
+                continue
+
+            if opinion_id not in tag_dist:
+                tag_dist[opinion_id] = 0
+            tag_dist[opinion_id] += 1
+
+            corpus.add(opinion_desc)
+
+    print("opinion cnt desc")
+    for k, v in tag_dist.items():
+        print(k, v)
+
+    return corpus
+
+
 def generate_samples(data_path, dst_path, level="char", min_cnt=3000, is_std=False, stdopinion=""):
     """
     生成样本，每种意见对应的样本量差异较大，需要采样
@@ -284,16 +335,43 @@ def generate_samples(data_path, dst_path, level="char", min_cnt=3000, is_std=Fal
     if not dst_path.endswith("/"):
         dst_path += "/"
 
+    # 非给定 stdopinion 语料
+    non_stdopinion_corpus = get_opinion_desc(data_path, stdopinion)
+
+    train_ratio = 0.8
+    test_ratio = 0.2
+    # val_ratio = 1 - train_ratio - test_ratio
+
     with open(dst_path + "train.txt", "w", encoding="utf8") as file_train, \
             open(dst_path + "test.txt", "w", encoding="utf8") as file_test, \
             open(dst_path + "dev.txt", "w", encoding="utf8") as file_dev:
+
+        idx = 0
+        _total = len(non_stdopinion_corpus)
+        for text in non_stdopinion_corpus:
+            idx += 1
+            if idx <= _total:
+                file_write = file_train
+            elif idx <= _total * (train_ratio + test_ratio):
+                file_write = file_test
+            else:
+                file_write = file_dev
+
+            if level == "char":
+                wlist = list(text)
+            else:
+                wlist = text.split(" ")
+            for w in wlist:
+                file_write.write(w + " O\n")
+            file_write.write("\n")
+
         idx = 0
         for text in text_list:
             _tag_list = corpus_dict[text]
             idx += 1
-            if idx < total * 0.8:
+            if idx < total * train_ratio:
                 file_write = file_train
-            elif idx <= total * 1.0:
+            elif idx <= total * (train_ratio + test_ratio):
                 file_write = file_test
             else:
                 file_write = file_dev
@@ -532,9 +610,14 @@ if __name__ == "__main__":
 
     # stats_sentence_len_dist(work_dir + "typical_opinion_corpus")
 
-    generate_samples(work_dir + "typical_opinion_corpus",
-                     work_dir + "sequence_label/",
-                     level="char", stdopinion="", min_cnt=3000, is_std=True)
+    # generate_samples(work_dir + "typical_opinion_corpus",
+    #                  work_dir + "sequence_label/",
+    #                  level="char", stdopinion="胎噪", min_cnt=3000, is_std=False)
+
+    corpus = get_opinion_desc(work_dir + "typical_opinion_corpus", "胎噪", min_cnt=1000)
+    with open(work_dir + "胎噪_extract","w",encoding="utf8") as file_write:
+        for text in corpus:
+            file_write.write(" ".join(list(text)) + "\n")
 
     # check_model_results(work_dir + "sequence_label/check/train.preds.txt")
 
