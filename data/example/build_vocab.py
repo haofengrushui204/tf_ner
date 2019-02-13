@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 root_dir = "/data/kongyy/nlp/tf_ner_guillaumegenthial/"
-DATADIR = root_dir + 'example/'
+# DATADIR = root_dir + 'example/'
 
 # TODO: modify this depending on your needs (1 will work just fine)
 # You might also want to be more clever about your vocab and intersect
@@ -14,6 +14,15 @@ DATADIR = root_dir + 'example/'
 MINCOUNT = 1
 
 if __name__ == '__main__':
+    import sys
+
+    if len(sys.argv) < 2:
+        print("usage: python build_w2v.py opinion_id")
+        sys.exit(0)
+    opinion_id = sys.argv[1]
+    DATADIR = root_dir + 'example/{}/'.format(opinion_id)
+
+
     # 1. Words
     # Get Counter of words on all the data, filter by min count, save
     def words(name):

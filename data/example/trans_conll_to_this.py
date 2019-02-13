@@ -5,6 +5,8 @@ Created on 2019/1/24
 @author: kyy_b
 @desc: 将 conll 格式的标注文件转为本程序可用的标注文件
 """
+import sys
+import traceback
 
 
 def trans(data_path, words_path, tags_path):
@@ -32,19 +34,91 @@ def trans(data_path, words_path, tags_path):
             file_tag.write(" ".join(taglist) + "\n")
 
 
+def trans_pred(data_path, ptags_path, words_path):
+    with open(ptags_path, "w", encoding="utf8") as file_ptag, \
+            open(data_path, "r", encoding="utf8") as file_read, \
+            open(words_path, "r", encoding="utf8") as file_word:
+        words_list = [line.strip() for line in file_word]
+        taglist = []
+        wlist = []
+        words_with_entity_dict = {}
+        for line in file_read:
+            if len(line.strip()) == 0:
+                words_with_entity_dict[" ".join(wlist)] = " ".join(taglist)
+                wlist = []
+                taglist = []
+            else:
+                items = line.rstrip("\n").split(" ")
+                if len(items) != 3:
+                    print(line)
+                    traceback.print_exc()
+                wlist.append(items[0])
+                if items[-1] != "O":
+                    taglist.append("1")
+                else:
+                    taglist.append("0")
+
+        if len(wlist) > 0:
+            words_with_entity_dict[" ".join(wlist)] = " ".join(taglist)
+
+        for sent in words_list:
+            if sent not in words_with_entity_dict:
+                taglist = " ".join(["0"] * len(sent.split(" ")))
+            else:
+                taglist = words_with_entity_dict[sent]
+            file_ptag.write(taglist + "\n")
+
+
+def trans2entity_label(data_path, words_path, tags_path):
+    with open(words_path, "w", encoding="utf8") as file_word, \
+            open(tags_path, "w", encoding="utf8") as file_tag, \
+            open(data_path, "r", encoding="utf8") as file_read:
+        wlist = []
+        taglist = []
+        for line in file_read:
+            if len(line.strip()) == 0:
+                if len([tag for tag in taglist if tag != "O"]) > 0:
+                    file_word.write(" ".join(wlist) + "\n")
+                    file_tag.write(" ".join(taglist) + "\n")
+                wlist = []
+                taglist = []
+            else:
+                items = line.rstrip("\n").split(" ")
+                if len(items) == 2:
+                    wlist.append(items[0])
+                else:
+                    taglist.append("")
+                if items[-1] in ["B-MODEL", "B-BRAND", "B-PRODUCTNAME"]:
+                    new_label = "B-ENTITY"
+                elif items[-1] in ["I-MODEL", "I-BRAND", "I-PRODUCTNAME"]:
+                    new_label = "I-ENTITY"
+                else:
+                    new_label = "O"
+                taglist.append(new_label)
+
+        if len(wlist) > 0:
+            file_word.write(" ".join(wlist) + "\n")
+            file_tag.write(" ".join(taglist) + "\n")
+
+
 if __name__ == "__main__":
-    stdopinion = 11
+    stdopinion = 10000
+    # data_dir = "E:/nlp_experiment/typical_opinion_extract/sequence_label/"
+    data_dir = "E:/nlp_experiment/auto-ner/gpu/"
 
     for data_type in ["test", "train"]:
         if len(str(stdopinion)) == 0:
-            trans("E:/nlp_experiment/typical_opinion_extract/sequence_label/{}.txt".format(data_type),
-                  "E:/nlp_experiment/typical_opinion_extract/sequence_label/{}.words.txt".format(data_type),
-                  "E:/nlp_experiment/typical_opinion_extract/sequence_label/{}.tags.txt".format(data_type),
-                  )
+            trans2entity_label(data_dir + "{}.txt".format(data_type),
+                               data_dir + "{}.words.txt".format(data_type),
+                               data_dir + "{}.tags.txt".format(data_type),
+                               )
         else:
-            trans("E:/nlp_experiment/typical_opinion_extract/sequence_label/{}/{}.txt".format(stdopinion, data_type),
-                  "E:/nlp_experiment/typical_opinion_extract/sequence_label/{}/{}.words.txt".format(stdopinion,
-                                                                                                    data_type),
-                  "E:/nlp_experiment/typical_opinion_extract/sequence_label/{}/{}.tags.txt".format(stdopinion,
-                                                                                                   data_type),
-                  )
+            trans2entity_label(data_dir + "{}/{}.txt".format(stdopinion, data_type),
+                               data_dir + "{}/{}.words.txt".format(stdopinion, data_type),
+                               data_dir + "{}/{}.tags.txt".format(stdopinion, data_type),
+                               )
+
+        # trans_pred(data_dir + "{}/{}.preds.txt".format(stdopinion, data_type),
+        #            data_dir + "{}/{}.ptags.txt".format(stdopinion, data_type),
+        #            data_dir + "{}/{}.words.txt".format(stdopinion, data_type)
+        #            )
