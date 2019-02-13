@@ -8,8 +8,11 @@ import numpy as np
 
 root_dir = "/data/kongyy/nlp/tf_ner_guillaumegenthial/"
 
-LINE = '探 歌 还 在 坑 里 ， 探 岳 又 要 跳 进 去 吗 ？'
-ptags = '1 1 0 0 0 0 0 1 1 0 0 0 0 0 0 0'
+# LINE = '探 歌 还 在 坑 里 ， 探 岳 又 要 跳 进 去 吗 ？'
+# PTAGS = '1 1 0 0 0 0 0 1 1 0 0 0 0 0 0 0'
+
+LINE = " ".join(list("南北差异有多大？看途岳和探岳就知道了！"))
+PTAGS = "0 0 0 0 0 0 0 0 0 1 1 0 1 1 0 0 0 0 0"
 
 
 def get_words():
@@ -40,11 +43,23 @@ if __name__ == '__main__':
     predict_fn = predictor.from_saved_model(latest)
     words = [w.encode() for w in LINE.split()]
     nwords = len(words)
+    ptags = [t.encode() for t in PTAGS.split()]
     # words = get_words()
     # nwords = [len(_words) for _words in words]
 
-    predictions = predict_fn({'words': [words], 'nwords': [nwords]})
-    print(predictions)
+    if int(opinion_id) == 10000:
+        predictions = predict_fn({'words': [words], 'nwords': [nwords], "ptags": [ptags]})
+        print(predictions)
+    elif int(opinion_id) == 10002:
+        predictions = predict_fn({'words': [words], 'nwords': [nwords]})
+        print(predictions)
+    elif int(opinion_id) == 10001:
+        predictions = predict_fn({'words': [words], 'nwords': [nwords]})
+        print(predictions)
+        tags = [t.decode() for t in predictions["tags"][0].tolist()]
+        print(" ".join([t.decode() for t in predictions["tags"][0].tolist()]).replace("B-ENTITY", "1").replace("I-ENTITY", "1"))
+    else:
+        print("opinion_id must be in (10000,10001,10002)")
 
     # file_write = open(root_dir + "predict_rst.txt", "wb")
     # for idx, _words in enumerate(words):
