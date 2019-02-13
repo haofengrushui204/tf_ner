@@ -67,7 +67,6 @@ def model_fn(features, labels, mode, params):
     # Read vocabs and inputs
     dropout = params['dropout']
     words, nwords, ptags = features
-    print(ptags)
     training = (mode == tf.estimator.ModeKeys.TRAIN)
     vocab_words = tf.contrib.lookup.index_table_from_file(
         params['words'], num_oov_buckets=params['num_oov_buckets'])
@@ -195,7 +194,6 @@ if __name__ == '__main__':
     train_spec = tf.estimator.TrainSpec(input_fn=train_inpf, hooks=[hook])
     eval_spec = tf.estimator.EvalSpec(input_fn=eval_inpf, throttle_secs=120)
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
-
 
     #  Write predictions to file
     def write_predictions(name):

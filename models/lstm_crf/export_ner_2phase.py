@@ -7,13 +7,14 @@ import json
 
 import tensorflow as tf
 
-from main import model_fn
+from main_ner_2phase import model_fn
 
 root_dir = "/data/kongyy/nlp/tf_ner_guillaumegenthial/"
+
+
 # DATADIR = root_dir + 'example'
 
 # DATADIR = '../../data/example'
-
 
 
 def serving_input_receiver_fn():
@@ -25,9 +26,9 @@ def serving_input_receiver_fn():
     """
     words = tf.placeholder(dtype=tf.string, shape=[None, None], name='words')
     nwords = tf.placeholder(dtype=tf.int32, shape=[None], name='nwords')
-    ptags = tf.placeholder(dtype=tf.int32, shape=[None], name='ptags')
-    receiver_tensors = {'words': words, 'nwords': nwords, "ptags":ptags}
-    features = {'words': words, 'nwords': nwords, "ptags":ptags}
+    ptags = tf.placeholder(dtype=tf.float32, shape=[None,None], name='ptags')
+    receiver_tensors = {'words': words, 'nwords': nwords, "ptags": ptags}
+    features = {'words': words, 'nwords': nwords, "ptags": ptags}
     return tf.estimator.export.ServingInputReceiver(features, receiver_tensors)
 
 
