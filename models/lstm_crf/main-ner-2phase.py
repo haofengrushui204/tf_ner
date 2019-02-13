@@ -24,28 +24,30 @@ handlers = [
 logging.getLogger('tensorflow').handlers = handlers
 
 
-def parse_fn(line_words, line_tags):
+def parse_fn(line_words, line_tags, line_ptags):
     # Encode in Bytes for TF
     words = [w.encode() for w in line_words.strip().split()]
     tags = [t.encode() for t in line_tags.strip().split()]
+    ptags = [t.encode() for t in line_ptags.strip().split()]
     assert len(words) == len(tags), "Words and tags lengths don't match " + line_words + " tag " + line_tags
-    return (words, len(words)), tags
+    assert len(words) == len(ptags), "Words and ptags lengths don't match " + line_words + " ptags " + line_ptags
+    return (words, len(words), ptags), tags
 
 
-def generator_fn(words, tags):
-    with Path(words).open('r') as f_words, Path(tags).open('r') as f_tags:
-        for line_words, line_tags in zip(f_words, f_tags):
-            yield parse_fn(line_words, line_tags)
+def generator_fn(words, tags, predtags):
+    with Path(words).open('r') as f_words, Path(tags).open('r') as f_tags, Path(predtags).open('r') as f_ptags:
+        for line_words, line_tags, line_ptags in zip(f_words, f_tags, f_ptags):
+            yield parse_fn(line_words, line_tags, line_ptags)
 
 
-def input_fn(words, tags, params=None, shuffle_and_repeat=False):
+def input_fn(words, tags, predtags, params=None, shuffle_and_repeat=False):
     params = params if params is not None else {}
-    shapes = (([None], ()), [None])
-    types = ((tf.string, tf.int32), tf.string)
-    defaults = (('<pad>', 0), 'O')
+    shapes = (([None], (), [None]), [None])
+    types = ((tf.string, tf.int32, tf.float32), tf.string)
+    defaults = (('<pad>', 0, 0.0), 'O')
 
     dataset = tf.data.Dataset.from_generator(
-        functools.partial(generator_fn, words, tags),
+        functools.partial(generator_fn, words, tags, predtags),
         output_shapes=shapes, output_types=types)
 
     if shuffle_and_repeat:
@@ -60,11 +62,12 @@ def input_fn(words, tags, params=None, shuffle_and_repeat=False):
 def model_fn(features, labels, mode, params):
     # For serving, features are a bit different
     if isinstance(features, dict):
-        features = features['words'], features['nwords']
+        features = features['words'], features['nwords'], features["ptags"]
 
     # Read vocabs and inputs
     dropout = params['dropout']
-    words, nwords = features
+    words, nwords, ptags = features
+    print(ptags)
     training = (mode == tf.estimator.ModeKeys.TRAIN)
     vocab_words = tf.contrib.lookup.index_table_from_file(
         params['words'], num_oov_buckets=params['num_oov_buckets'])
@@ -78,7 +81,10 @@ def model_fn(features, labels, mode, params):
     variable = np.vstack([glove, [[0.] * params['dim']]])
     variable = tf.Variable(variable, dtype=tf.float32, trainable=False)
     embeddings = tf.nn.embedding_lookup(variable, word_ids)
-    embeddings = tf.layers.dropout(embeddings, rate=dropout, training=training)
+    # embeddings = tf.layers.dropout(embeddings, rate=dropout, training=training)
+    ptags_expand = tf.expand_dims(ptags, -1)
+    embeddings_with_ptags = tf.concat([embeddings, ptags_expand], 2)
+    embeddings = tf.layers.dropout(embeddings_with_ptags, rate=dropout, training=training)
 
     # LSTM
     t = tf.transpose(embeddings, perm=[1, 0, 2])
@@ -140,6 +146,7 @@ def model_fn(features, labels, mode, params):
 if __name__ == '__main__':
     import sys
     import os
+
     if len(sys.argv) < 2:
         print("usage: python main.py opinion_id")
         sys.exit(0)
@@ -171,10 +178,14 @@ if __name__ == '__main__':
         return str(Path(DATADIR, '{}.tags.txt'.format(name)))
 
 
+    def fpredtags(name):
+        return str(Path(DATADIR, '{}.ptags.txt'.format(name)))
+
+
     # Estimator, train and evaluate
-    train_inpf = functools.partial(input_fn, fwords('train'), ftags('train'),
+    train_inpf = functools.partial(input_fn, fwords('train'), ftags('train'), fpredtags("train"),
                                    params, shuffle_and_repeat=True)
-    eval_inpf = functools.partial(input_fn, fwords('test'), ftags('test'))
+    eval_inpf = functools.partial(input_fn, fwords('test'), ftags('test'), fpredtags("test"))
 
     cfg = tf.estimator.RunConfig(save_checkpoints_secs=120)
     estimator = tf.estimator.Estimator(model_fn, root_dir + 'results/model', cfg, params)
@@ -185,20 +196,22 @@ if __name__ == '__main__':
     eval_spec = tf.estimator.EvalSpec(input_fn=eval_inpf, throttle_secs=120)
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
 
+
     #  Write predictions to file
     def write_predictions(name):
         Path(root_dir + 'results/score').mkdir(parents=True, exist_ok=True)
         with Path(root_dir + 'results/score/{}.preds.txt'.format(name)).open('wb') as f:
-            test_inpf = functools.partial(input_fn, fwords(name), ftags(name))
-            golds_gen = generator_fn(fwords(name), ftags(name))
+            test_inpf = functools.partial(input_fn, fwords(name), ftags(name), fpredtags(name))
+            golds_gen = generator_fn(fwords(name), ftags(name), fpredtags(name))
             preds_gen = estimator.predict(test_inpf)
             for golds, preds in zip(golds_gen, preds_gen):
-                ((words, _), tags) = golds
+                ((words, _, _), tags) = golds
                 for word, tag, tag_pred in zip(words, tags, preds['tags']):
                     f.write(b' '.join([word, tag, tag_pred]) + b'\n')
                 f.write(b'\n')
 
+
     for name in ['train', 'test']:
         write_predictions(name)
 
-    os.rename(root_dir + "results", root_dir + "results_{}".format(opinion_id))
+    # os.rename(root_dir + "results", root_dir + "results_{}".format(opinion_id))

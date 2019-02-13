@@ -25,8 +25,9 @@ def serving_input_receiver_fn():
     """
     words = tf.placeholder(dtype=tf.string, shape=[None, None], name='words')
     nwords = tf.placeholder(dtype=tf.int32, shape=[None], name='nwords')
-    receiver_tensors = {'words': words, 'nwords': nwords}
-    features = {'words': words, 'nwords': nwords}
+    ptags = tf.placeholder(dtype=tf.int32, shape=[None], name='ptags')
+    receiver_tensors = {'words': words, 'nwords': nwords, "ptags":ptags}
+    features = {'words': words, 'nwords': nwords, "ptags":ptags}
     return tf.estimator.export.ServingInputReceiver(features, receiver_tensors)
 
 
@@ -34,7 +35,7 @@ if __name__ == '__main__':
     import sys
 
     if len(sys.argv) < 2:
-        print("usage: python export.py opinion_id")
+        print("usage: python export-ner-2phase.py opinion_id")
         sys.exit(0)
     opinion_id = sys.argv[1]
     DATADIR = root_dir + 'example/{}/'.format(opinion_id)

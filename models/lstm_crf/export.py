@@ -10,11 +10,10 @@ import tensorflow as tf
 from main import model_fn
 
 root_dir = "/data/kongyy/nlp/tf_ner_guillaumegenthial/"
-DATADIR = root_dir + 'example'
+# DATADIR = root_dir + 'example'
 
 # DATADIR = '../../data/example'
-PARAMS = root_dir + 'results/params.json'
-MODELDIR = root_dir + 'results/model'
+
 
 
 def serving_input_receiver_fn():
@@ -32,13 +31,24 @@ def serving_input_receiver_fn():
 
 
 if __name__ == '__main__':
+    import sys
+
+    if len(sys.argv) < 2:
+        print("usage: python export.py opinion_id")
+        sys.exit(0)
+    opinion_id = sys.argv[1]
+    DATADIR = root_dir + 'example/{}/'.format(opinion_id)
+
+    PARAMS = root_dir + 'results_{}/params.json'.format(opinion_id)
+    MODELDIR = root_dir + 'results_{}/model'.format(opinion_id)
+
     with Path(PARAMS).open() as f:
         params = json.load(f)
 
     params['words'] = str(Path(DATADIR, 'vocab.words.txt'))
     params['chars'] = str(Path(DATADIR, 'vocab.chars.txt'))
     params['tags'] = str(Path(DATADIR, 'vocab.tags.txt'))
-    params['glove'] = str(Path(DATADIR, 'w2v.npz'))
+    params['glove'] = str(Path(DATADIR, 'w2v_{}.npz'.format(opinion_id)))
 
     estimator = tf.estimator.Estimator(model_fn, MODELDIR, params=params)
-    estimator.export_savedmodel(root_dir + 'saved_model', serving_input_receiver_fn)
+    estimator.export_savedmodel(root_dir + 'saved_model_{}'.format(opinion_id), serving_input_receiver_fn)

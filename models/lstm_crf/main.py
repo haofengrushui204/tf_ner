@@ -13,7 +13,6 @@ import tensorflow as tf
 from tf_metrics import precision, recall, f1
 
 root_dir = "/data/kongyy/nlp/tf_ner_guillaumegenthial/"
-DATADIR = root_dir + 'example'
 
 # Logging
 Path(root_dir + 'results').mkdir(exist_ok=True)
@@ -95,7 +94,7 @@ def model_fn(features, labels, mode, params):
     # CRF
     logits = tf.layers.dense(output, num_tags)
     crf_params = tf.get_variable("crf", [num_tags, num_tags], dtype=tf.float32)
-    pred_ids, _ = tf.contrib.crf.crf_decode(logits, crf_params, nwords)
+    pred_ids, pred_scores = tf.contrib.crf.crf_decode(logits, crf_params, nwords)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
         # Predictions
@@ -104,7 +103,8 @@ def model_fn(features, labels, mode, params):
         pred_strings = reverse_vocab_tags.lookup(tf.to_int64(pred_ids))
         predictions = {
             'pred_ids': pred_ids,
-            'tags': pred_strings
+            'tags': pred_strings,
+            "scores": pred_scores
         }
         return tf.estimator.EstimatorSpec(mode, predictions=predictions)
     else:
@@ -138,9 +138,16 @@ def model_fn(features, labels, mode, params):
 
 
 if __name__ == '__main__':
+    import sys
+    import os
+    if len(sys.argv) < 2:
+        print("usage: python main.py opinion_id")
+        sys.exit(0)
+    opinion_id = sys.argv[1]
+    DATADIR = root_dir + 'example/{}/'.format(opinion_id)
     # Params
     params = {
-        'dim': 100,
+        'dim': 60,
         'dropout': 0.5,
         'num_oov_buckets': 1,
         'epochs': 25,
@@ -150,7 +157,7 @@ if __name__ == '__main__':
         'words': str(Path(DATADIR, 'vocab.words.txt')),
         'chars': str(Path(DATADIR, 'vocab.chars.txt')),
         'tags': str(Path(DATADIR, 'vocab.tags.txt')),
-        'glove': str(Path(DATADIR, 'w2v.npz'))
+        'glove': str(Path(DATADIR, 'w2v_{}.npz'.format(opinion_id)))
     }
     with Path(root_dir + 'results/params.json').open('w') as f:
         json.dump(params, f, indent=4, sort_keys=True)
@@ -178,7 +185,7 @@ if __name__ == '__main__':
     eval_spec = tf.estimator.EvalSpec(input_fn=eval_inpf, throttle_secs=120)
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
 
-    # Write predictions to file
+    #  Write predictions to file
     def write_predictions(name):
         Path(root_dir + 'results/score').mkdir(parents=True, exist_ok=True)
         with Path(root_dir + 'results/score/{}.preds.txt'.format(name)).open('wb') as f:
@@ -191,6 +198,7 @@ if __name__ == '__main__':
                     f.write(b' '.join([word, tag, tag_pred]) + b'\n')
                 f.write(b'\n')
 
-
     for name in ['train', 'test']:
         write_predictions(name)
+
+    os.rename(root_dir + "results", root_dir + "results_{}".format(opinion_id))
