@@ -81,6 +81,8 @@ def feature_layers(embeddings, reuse=True):
     :return:
     """
     block_unflat_scores = []
+    l2_loss = tf.constant(0.0)
+    # emeddings dim is [batch_size, max_seq_len, emb_dim]
 
     with tf.variable_scope("feature_layers", reuse=reuse):
         # input_list = [embeddings]
@@ -92,29 +94,31 @@ def feature_layers(embeddings, reuse=True):
 
         initial_filter_width = params["layers_map"][0][1]['width']
         initial_num_filters = params["layers_map"][0][1]['filters']
-        filter_shape = [1, initial_filter_width, input_size, initial_num_filters]
+        filter_shape = [1, initial_filter_width, input_size, initial_num_filters]  # [h,w,in_channels, out_channels]
         initial_layer_name = "conv0"
 
         if not reuse:
             print("Adding initial layer %s: width: %d; filters: %d" % (
                 initial_layer_name, initial_filter_width, initial_num_filters))
 
-        input_feats = embeddings
-        input_feats_expanded = tf.expand_dims(input_feats, 1)
+        # input_feats = embeddings
+        # [batch_size, 1, max_seq_len, dim] = [N, H, W, in_channels]
+        input_feats_expanded = tf.expand_dims(embeddings, 1)
         # input_feats_expanded_drop = tf.nn.dropout(input_feats_expanded, params["input_dropout_keep_prob"])
         print("input feats expanded drop", input_feats_expanded.get_shape())
 
         # first projection of embeddings
         w = tf_utils.initialize_weights(filter_shape, initial_layer_name + "_w", init_type='xavier', gain='relu')
         b = tf.get_variable(initial_layer_name + "_b", initializer=tf.constant(0.01, shape=[initial_num_filters]))
+        # conv0 dim = [batch_size, 1, max_seq_len, dim]
         conv0 = tf.nn.conv2d(input_feats_expanded, w, strides=[1, 1, 1, 1], padding="SAME", name=initial_layer_name)
-        h0 = tf_utils.apply_nonlinearity(tf.nn.bias_add(conv0, b), 'relu')
+        h0 = tf_utils.apply_nonlinearity(tf.nn.bias_add(conv0, b), 'relu')  # [batch_size, 1, max_seq_len, dim]
 
         initial_inputs = [h0]
         last_dims = initial_num_filters
 
         # Stacked atrous convolutions
-        last_output = tf.concat(axis=3, values=initial_inputs)
+        last_output = tf.concat(axis=3, values=initial_inputs)  # [batch_size, 1, max_seq_len, last_dims]
 
         for block in range(params["repeats"]):
             print("last out shape", last_output.get_shape())
@@ -192,42 +196,15 @@ def feature_layers(embeddings, reuse=True):
                 with tf.name_scope("output" + block_name_suff):
                     w_o = tf_utils.initialize_weights([proj_width, params["num_classes"]], "w_o", init_type="xavier")
                     b_o = tf.get_variable("b_o", initializer=tf.constant(0.01, shape=[params["num_classes"]]))
-                    self.l2_loss += tf.nn.l2_loss(w_o)
-                    self.l2_loss += tf.nn.l2_loss(b_o)
+                    l2_loss += tf.nn.l2_loss(w_o)
+                    l2_loss += tf.nn.l2_loss(b_o)
                     scores = tf.nn.xw_plus_b(input_to_pred_drop, w_o, b_o, name="scores")
                     unflat_scores = tf.reshape(scores,
-                                               tf.stack([params["batch_size"], max_seq_len, params["num_classes"]]))
+                                               tf.stack([params["batch_size"], params["max_seq_len"],
+                                                         params["num_classes"]]))
                     block_unflat_scores.append(unflat_scores)
 
-    return block_unflat_scores, h_concat_squeeze
-
-
-def compute_loss(self, scores, scores_no_dropout, labels):
-    loss = tf.constant(0.0)
-
-    if params["CRF"]:
-        zero_elements = tf.equal(self.sequence_lengths, tf.zeros_like(self.sequence_lengths))
-        count_zeros_per_row = tf.reduce_sum(tf.to_int32(zero_elements), axis=1)
-        flat_sequence_lengths = tf.add(tf.reduce_sum(self.sequence_lengths, 1),
-                                       tf.scalar_mul(2, count_zeros_per_row))
-
-        log_likelihood, transition_params = tf.contrib.crf.crf_log_likelihood(scores, labels, flat_sequence_lengths,
-                                                                              transition_params=self.transition_params)
-        loss += tf.reduce_mean(-log_likelihood)
-    else:
-        if self.which_loss == "mean" or self.which_loss == "block":
-            losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=scores, labels=labels)
-            masked_losses = tf.multiply(losses, self.input_mask)
-            loss += tf.div(tf.reduce_sum(masked_losses), tf.reduce_sum(self.input_mask))
-        elif self.which_loss == "sum":
-            losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=scores, labels=labels)
-            masked_losses = tf.multiply(losses, self.input_mask)
-            loss += tf.reduce_sum(masked_losses)
-    loss += self.l2_penalty * self.l2_loss
-
-    drop_loss = tf.nn.l2_loss(tf.subtract(scores, scores_no_dropout))
-    loss += self.drop_penalty * drop_loss
-    return loss
+    return block_unflat_scores, h_concat_squeeze, l2_loss
 
 
 def model_fn(features, labels, mode, params):
@@ -266,7 +243,7 @@ def model_fn(features, labels, mode, params):
     # Word Embeddings
     word_ids = vocab_words.lookup(words)
     glove = np.load(params['glove'])['embeddings']  # np.array
-    variable = np.vstack([glove, [[0.] * params['dim']]])
+    variable = np.vstack([glove, [[0.] * params['dim']]])  # [vob_size, emb_size]
     variable = tf.Variable(variable, dtype=tf.float32, trainable=False)
     word_embeddings = tf.nn.embedding_lookup(variable, word_ids)
 
@@ -274,29 +251,18 @@ def model_fn(features, labels, mode, params):
     embeddings = tf.concat([word_embeddings, char_embeddings], axis=-1)
     embeddings = tf.layers.dropout(embeddings, rate=dropout, training=training)
 
-    # LSTM
-    t = tf.transpose(embeddings, perm=[1, 0, 2])  # Need time-major
-    lstm_cell_fw = tf.contrib.rnn.LSTMBlockFusedCell(params['lstm_size'])
-    lstm_cell_bw = tf.contrib.rnn.LSTMBlockFusedCell(params['lstm_size'])
-    lstm_cell_bw = tf.contrib.rnn.TimeReversedFusedRNN(lstm_cell_bw)
-    output_fw, _ = lstm_cell_fw(t, dtype=tf.float32, sequence_length=nwords)
-    output_bw, _ = lstm_cell_bw(t, dtype=tf.float32, sequence_length=nwords)
-    output = tf.concat([output_fw, output_bw], axis=-1)
-    output = tf.transpose(output, perm=[1, 0, 2])
-    output = tf.layers.dropout(output, rate=dropout, training=training)
+    block_unflat_scores, h_concat_squeeze, l2_loss = feature_layers(embeddings, reuse=True)
+    unflat_scores = block_unflat_scores[-1]
 
-    # CRF
-    logits = tf.layers.dense(output, num_tags)
-    crf_params = tf.get_variable("crf", [num_tags, num_tags], dtype=tf.float32)
-    pred_ids, _ = tf.contrib.crf.crf_decode(logits, crf_params, nwords)
+    pred_strings = tf.argmax(unflat_scores, 2)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
         # Predictions
-        reverse_vocab_tags = tf.contrib.lookup.index_to_string_table_from_file(
-            params['tags'])
-        pred_strings = reverse_vocab_tags.lookup(tf.to_int64(pred_ids))
+        # reverse_vocab_tags = tf.contrib.lookup.index_to_string_table_from_file(
+        #     params['tags'])
+        # pred_strings = reverse_vocab_tags.lookup(tf.to_int64(pred_ids))
         predictions = {
-            'pred_ids': pred_ids,
+            # 'pred_ids': pred_ids,
             'tags': pred_strings
         }
         return tf.estimator.EstimatorSpec(mode, predictions=predictions)
@@ -304,9 +270,15 @@ def model_fn(features, labels, mode, params):
         # Loss
         vocab_tags = tf.contrib.lookup.index_table_from_file(params['tags'])
         tags = vocab_tags.lookup(labels)
-        log_likelihood, _ = tf.contrib.crf.crf_log_likelihood(
-            logits, tags, nwords, crf_params)
-        loss = tf.reduce_mean(-log_likelihood)
+        # CalculateMean cross-entropy loss
+        with tf.name_scope("loss"):
+            loss = tf.constant(0.0)
+            labels = tf.cast(labels, 'int32')
+
+            losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=block_unflat_scores, labels=tags)
+            masked_losses = tf.multiply(losses, input_mask)
+            loss += tf.div(tf.reduce_sum(masked_losses), tf.reduce_sum(input_mask))
+            loss += params["l2_penalty"] * l2_loss
 
         # Metrics
         weights = tf.sequence_mask(nwords)
@@ -374,7 +346,6 @@ if __name__ == "__main__":
     train_spec = tf.estimator.TrainSpec(input_fn=train_inpf, hooks=[hook])
     eval_spec = tf.estimator.EvalSpec(input_fn=eval_inpf, throttle_secs=120)
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
-
 
     # Write predictions to file
     def write_predictions(name):
