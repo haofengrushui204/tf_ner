@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 import sys
 
+from models.chars_conv_dilated_conv import tf_utils
 import numpy as np
 import tensorflow as tf
 from tf_metrics import precision, recall, f1
@@ -100,14 +101,13 @@ def feature_layers(embeddings, reuse=True):
 
         input_feats = embeddings
         input_feats_expanded = tf.expand_dims(input_feats, 1)
-        input_feats_expanded_drop = tf.nn.dropout(input_feats_expanded, params["input_dropout_keep_prob"])
-        print("input feats expanded drop", input_feats_expanded_drop.get_shape())
+        # input_feats_expanded_drop = tf.nn.dropout(input_feats_expanded, params["input_dropout_keep_prob"])
+        print("input feats expanded drop", input_feats_expanded.get_shape())
 
         # first projection of embeddings
         w = tf_utils.initialize_weights(filter_shape, initial_layer_name + "_w", init_type='xavier', gain='relu')
         b = tf.get_variable(initial_layer_name + "_b", initializer=tf.constant(0.01, shape=[initial_num_filters]))
-        conv0 = tf.nn.conv2d(input_feats_expanded_drop, w, strides=[1, 1, 1, 1], padding="SAME",
-                             name=initial_layer_name)
+        conv0 = tf.nn.conv2d(input_feats_expanded, w, strides=[1, 1, 1, 1], padding="SAME", name=initial_layer_name)
         h0 = tf_utils.apply_nonlinearity(tf.nn.bias_add(conv0, b), 'relu')
 
         initial_inputs = [h0]
@@ -139,7 +139,7 @@ def feature_layers(embeddings, reuse=True):
                         # [filter_height, filter_width, in_channels, out_channels]
                         filter_shape = [1, filter_width, inner_last_dims, num_filters]
                         w = tf_utils.initialize_weights(filter_shape, layer_name + "_w", init_type=initialization,
-                                                        gain=self.nonlinearity, divisor=self.num_classes)
+                                                        gain=params["nonlinearity"], divisor=params["num_classes"])
                         b = tf.get_variable(layer_name + "_b", initializer=tf.constant(
                             0.0 if initialization == "identity" or initialization == "varscale" else 0.001,
                             shape=[num_filters]))
@@ -152,7 +152,7 @@ def feature_layers(embeddings, reuse=True):
                         conv = tf.nn.atrous_conv2d(inner_last_output, w, rate=dilation, padding="SAME",
                                                    name=layer_name)
                         conv_b = tf.nn.bias_add(conv, b)
-                        h = tf_utils.apply_nonlinearity(conv_b, self.nonlinearity)
+                        h = tf_utils.apply_nonlinearity(conv_b, params["nonlinearity"])
 
                         # so, only apply "take" to last block (may want to change this later)
                         if take_layer:
@@ -162,7 +162,7 @@ def feature_layers(embeddings, reuse=True):
                         inner_last_output = h
 
                 h_concat = tf.concat(axis=3, values=hidden_outputs)
-                last_output = tf.nn.dropout(h_concat, middle_dropout_keep_prob)
+                last_output = tf.nn.dropout(h_concat, params["middle_dropout_keep_prob"])
                 last_dims = total_output_width
 
                 h_concat_squeeze = tf.squeeze(h_concat, [1])
@@ -170,7 +170,7 @@ def feature_layers(embeddings, reuse=True):
 
                 # Add dropout
                 with tf.name_scope("hidden_dropout"):
-                    h_drop = tf.nn.dropout(h_concat_flat, hidden_dropout_keep_prob)
+                    h_drop = tf.nn.dropout(h_concat_flat, params["hidden_dropout_keep_prob"])
 
                 def do_projection():
                     # Project raw outputs down
@@ -180,22 +180,23 @@ def feature_layers(embeddings, reuse=True):
                                                           init_type="xavier")
                         b_p = tf.get_variable("b_p", initializer=tf.constant(0.01, shape=[projection_width]))
                         projected = tf.nn.xw_plus_b(h_drop, w_p, b_p, name="projected")
-                        projected_nonlinearity = tf_utils.apply_nonlinearity(projected, self.nonlinearity)
+                        projected_nonlinearity = tf_utils.apply_nonlinearity(projected, params["nonlinearity"])
                     return projected_nonlinearity, projection_width
 
                 # only use projection if we wanted to, and only apply middle dropout here if projection
-                input_to_pred, proj_width = do_projection() if self.projection else (h_drop, total_output_width)
-                input_to_pred_drop = tf.nn.dropout(input_to_pred,
-                                                   middle_dropout_keep_prob) if self.projection else input_to_pred
+                input_to_pred, proj_width = do_projection() if params["projection"] else (h_drop, total_output_width)
+                input_to_pred_drop = tf.nn.dropout(input_to_pred, params["middle_dropout_keep_prob"]) \
+                    if params["projection"] else input_to_pred
 
                 # Final (unnormalized) scores and predictions
                 with tf.name_scope("output" + block_name_suff):
-                    w_o = tf_utils.initialize_weights([proj_width, self.num_classes], "w_o", init_type="xavier")
-                    b_o = tf.get_variable("b_o", initializer=tf.constant(0.01, shape=[self.num_classes]))
+                    w_o = tf_utils.initialize_weights([proj_width, params["num_classes"]], "w_o", init_type="xavier")
+                    b_o = tf.get_variable("b_o", initializer=tf.constant(0.01, shape=[params["num_classes"]]))
                     self.l2_loss += tf.nn.l2_loss(w_o)
                     self.l2_loss += tf.nn.l2_loss(b_o)
                     scores = tf.nn.xw_plus_b(input_to_pred_drop, w_o, b_o, name="scores")
-                    unflat_scores = tf.reshape(scores, tf.stack([self.batch_size, max_seq_len, self.num_classes]))
+                    unflat_scores = tf.reshape(scores,
+                                               tf.stack([params["batch_size"], max_seq_len, params["num_classes"]]))
                     block_unflat_scores.append(unflat_scores)
 
     return block_unflat_scores, h_concat_squeeze
@@ -254,8 +255,8 @@ def model_fn(features, labels, mode, params):
     variable = tf.get_variable(
         'chars_embeddings', [num_chars + 1, params['dim_chars']], tf.float32)
     char_embeddings = tf.nn.embedding_lookup(variable, char_ids)
-    char_embeddings = tf.layers.dropout(char_embeddings, rate=dropout,
-                                        training=training)
+    # char_embeddings = tf.layers.dropout(char_embeddings, rate=dropout,
+    #                                     training=training)
 
     # Char 1d convolution
     weights = tf.sequence_mask(nchars)
