@@ -48,13 +48,11 @@ def trans_zero_one_label(tags_path, tags01_path):
                         while j < len(tags) and tags[j] == "I-" + label:
                             j += 1
                             new_tags.append("0")
-                        if j == i+1:
-                            new_tags.append("1")
+                        new_tags.append("1")
                         i = j
                     else:
                         new_tags.append("1")
                         i += 1
-                new_tags.append("1")
                 file_write.write(" ".join(new_tags) + "\n")
 
 
@@ -130,11 +128,14 @@ if __name__ == "__main__":
     # data_dir = "E:/nlp_experiment/typical_opinion_extract/sequence_label/"
     data_dir = "E:/nlp_experiment/auto-ner/gpu/"
 
-    trans_zero_one_label("/data/kongyy/nlp/tf_ner_guillaumegenthial/example/10001/train.tags.txt",
-                         "D:/workspace/tensorflow/tf_ner/data/example/train.tags01.txt")
+    # trans_zero_one_label("D:/workspace/tensorflow/tf_ner/data/example/train.tags.txt",
+    #                      "D:/workspace/tensorflow/tf_ner/data/example/train.tags01.txt")
 
-    trans_zero_one_label("/data/kongyy/nlp/tf_ner_guillaumegenthial/example/10001/test.tags.txt",
-                         "D:/workspace/tensorflow/tf_ner/data/example/test.tags01.txt")
+    trans_zero_one_label("/data/kongyy/nlp/tf_ner_guillaumegenthial/example/10002/train.tags.txt",
+                         "/data/kongyy/nlp/tf_ner_guillaumegenthial/example/10002/train.tags01.txt")
+
+    trans_zero_one_label("/data/kongyy/nlp/tf_ner_guillaumegenthial/example/10002/test.tags.txt",
+                         "/data/kongyy/nlp/tf_ner_guillaumegenthial/example/10002/test.tags01.txt")
 
     # for data_type in ["test", "train"]:
     #     if len(str(stdopinion)) == 0:
