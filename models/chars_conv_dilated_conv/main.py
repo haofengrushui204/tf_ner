@@ -256,7 +256,7 @@ def model_fn(features, labels, mode, params):
     embeddings = tf.layers.dropout(embeddings, rate=dropout, training=training)
 
     # block_unflat_scores shape: [batch_size, max_seq_len, class_num]
-    block_unflat_scores, h_concat_squeeze, l2_loss = feature_layers(embeddings, reuse=True)
+    block_unflat_scores, _, l2_loss = feature_layers(embeddings, reuse=True)
     pred_ids = tf.argmax(block_unflat_scores[-1], 2)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
@@ -271,7 +271,6 @@ def model_fn(features, labels, mode, params):
         return tf.estimator.EstimatorSpec(mode, predictions=predictions)
     else:
         # Loss
-
         input_mask = tf.ones(shape=[tf.shape(words)[0], params["max_seq_len"]], dtype=tf.int32)
         for i, real_seq_len in enumerate(nwords):
             input_mask[i, real_seq_len:] = 0
@@ -339,14 +338,11 @@ if __name__ == "__main__":
     with Path('results/params.json').open('w') as f:
         json.dump(params, f, indent=4, sort_keys=True)
 
-
     def fwords(name):
         return str(Path(DATADIR, '{}.words.txt'.format(name)))
 
-
     def ftags(name):
         return str(Path(DATADIR, '{}.tags.txt'.format(name)))
-
 
     # Estimator, train and evaluate
     train_inpf = functools.partial(input_fn, fwords('train'), ftags('train'),

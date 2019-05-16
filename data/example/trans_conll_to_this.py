@@ -34,6 +34,30 @@ def trans(data_path, words_path, tags_path):
             file_tag.write(" ".join(taglist) + "\n")
 
 
+def trans_zero_one_label(tags_path, tags01_path):
+    with open(tags01_path, "w", encoding="utf8") as file_write:
+        with open(tags_path, "r", encoding="utf8") as file_read:
+            for line in file_read:
+                tags = line.strip().split(" ")
+                new_tags = []
+                i = 0
+                while i < len(tags):
+                    if tags[i].startswith("B-"):
+                        label = tags[i].split("-")[-1]
+                        j = i+1
+                        while j < len(tags) and tags[j] == "I-" + label:
+                            j += 1
+                            new_tags.append("0")
+                        if j == i+1:
+                            new_tags.append("1")
+                        i = j
+                    else:
+                        new_tags.append("1")
+                        i += 1
+                new_tags.append("1")
+                file_write.write(" ".join(new_tags) + "\n")
+
+
 def trans_pred(data_path, ptags_path, words_path):
     with open(ptags_path, "w", encoding="utf8") as file_ptag, \
             open(data_path, "r", encoding="utf8") as file_read, \
@@ -106,19 +130,25 @@ if __name__ == "__main__":
     # data_dir = "E:/nlp_experiment/typical_opinion_extract/sequence_label/"
     data_dir = "E:/nlp_experiment/auto-ner/gpu/"
 
-    for data_type in ["test", "train"]:
-        if len(str(stdopinion)) == 0:
-            trans2entity_label(data_dir + "{}.txt".format(data_type),
-                               data_dir + "{}.words.txt".format(data_type),
-                               data_dir + "{}.tags.txt".format(data_type),
-                               )
-        else:
-            trans2entity_label(data_dir + "{}/{}.txt".format(stdopinion, data_type),
-                               data_dir + "{}/{}.words.txt".format(stdopinion, data_type),
-                               data_dir + "{}/{}.tags.txt".format(stdopinion, data_type),
-                               )
+    trans_zero_one_label("/data/kongyy/nlp/tf_ner_guillaumegenthial/example/10001/train.tags.txt",
+                         "D:/workspace/tensorflow/tf_ner/data/example/train.tags01.txt")
 
-        # trans_pred(data_dir + "{}/{}.preds.txt".format(stdopinion, data_type),
-        #            data_dir + "{}/{}.ptags.txt".format(stdopinion, data_type),
-        #            data_dir + "{}/{}.words.txt".format(stdopinion, data_type)
-        #            )
+    trans_zero_one_label("/data/kongyy/nlp/tf_ner_guillaumegenthial/example/10001/test.tags.txt",
+                         "D:/workspace/tensorflow/tf_ner/data/example/test.tags01.txt")
+
+    # for data_type in ["test", "train"]:
+    #     if len(str(stdopinion)) == 0:
+    #         trans2entity_label(data_dir + "{}.txt".format(data_type),
+    #                            data_dir + "{}.words.txt".format(data_type),
+    #                            data_dir + "{}.tags.txt".format(data_type),
+    #                            )
+    #     else:
+    #         trans2entity_label(data_dir + "{}/{}.txt".format(stdopinion, data_type),
+    #                            data_dir + "{}/{}.words.txt".format(stdopinion, data_type),
+    #                            data_dir + "{}/{}.tags.txt".format(stdopinion, data_type),
+    #                            )
+
+    # trans_pred(data_dir + "{}/{}.preds.txt".format(stdopinion, data_type),
+    #            data_dir + "{}/{}.ptags.txt".format(stdopinion, data_type),
+    #            data_dir + "{}/{}.words.txt".format(stdopinion, data_type)
+    #            )
