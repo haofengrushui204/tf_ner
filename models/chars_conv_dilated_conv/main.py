@@ -16,7 +16,7 @@ from tf_metrics import precision, recall, f1
 from models.chars_conv_dilated_conv import tf_utils
 from models.chars_conv_dilated_conv.masked_conv import masked_conv1d_and_max
 
-DATADIR = '../../data/example'
+DATADIR = '../../data/example/10002/'
 
 # Logging
 Path('results').mkdir(exist_ok=True)
@@ -242,7 +242,7 @@ def model_fn(features, labels, mode, params):
     # Char 1d convolution
     weights = tf.sequence_mask(nchars)
     char_embeddings = masked_conv1d_and_max(
-        char_embeddings, weights, params['filters'], params['kernel_size'])
+        char_embeddings, weights, params['char_filters'], params['char_kernel_size'])
 
     # Word Embeddings
     word_ids = vocab_words.lookup(words)
@@ -322,7 +322,8 @@ if __name__ == "__main__":
         'epochs': 25,
         'batch_size': 20,
         'buffer': 15000,
-        'kernel_size': 3,
+        'char_kernel_size': 3,
+        "char_filters": 50,
         'lstm_size': 100,
         "layers_map": layers_map,
         "max_seq_len": 64,
@@ -330,6 +331,7 @@ if __name__ == "__main__":
         "projection": False,
         "num_classes": 2,
         "block_repeats": 1,
+
         'words': str(Path(DATADIR, 'vocab.words.txt')),
         'chars': str(Path(DATADIR, 'vocab.chars.txt')),
         'tags': str(Path(DATADIR, 'vocab.tags.txt')),
@@ -338,11 +340,14 @@ if __name__ == "__main__":
     with Path('results/params.json').open('w') as f:
         json.dump(params, f, indent=4, sort_keys=True)
 
+
     def fwords(name):
         return str(Path(DATADIR, '{}.words.txt'.format(name)))
 
+
     def ftags(name):
         return str(Path(DATADIR, '{}.tags.txt'.format(name)))
+
 
     # Estimator, train and evaluate
     train_inpf = functools.partial(input_fn, fwords('train'), ftags('train'),
