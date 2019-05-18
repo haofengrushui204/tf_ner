@@ -12,11 +12,13 @@ from pathlib import Path
 import sys
 import numpy as np
 import tensorflow as tf
+sys.path.append(".")
+sys.path.append("..")
 from tf_metrics import precision, recall, f1
-from models.chars_conv_dilated_conv import tf_utils
-from models.chars_conv_dilated_conv.masked_conv import masked_conv1d_and_max
+import tf_utils
+from masked_conv import masked_conv1d_and_max
 
-DATADIR = '../../data/example/10002/'
+DATADIR = '/data/kongyy/nlp/tf_ner_guillaumegenthial/example/10002/'
 
 # Logging
 Path('results').mkdir(exist_ok=True)
@@ -30,26 +32,27 @@ logging.getLogger('tensorflow').handlers = handlers
 
 def parse_fn(line_words, line_tags):
     # Encode in Bytes for TF
-    words = [w.encode() for w in line_words.strip().split()]
-    tags = [t.encode() for t in line_tags.strip().split()]
-    nwords = len(words)
+    _words = line_words.strip().split()
+    _tags = line_tags.strip().split()
+    nwords = len(_words)
     max_len = params["max_seq_len"]
     if nwords < max_len:
-        words += [b'<pad>'] * (max_len - nwords)
-        tags += [b'O'] * (max_len - nwords)
+        _words += ['<pad>'] * (max_len - nwords)
+        _tags += ['1'] * (max_len - nwords)
     elif nwords > max_len:
-        words = words[:max_len]
-        tags = tags[:max_len]
+        _words = words[:max_len]
+        _tags = tags[:max_len]
+ 
+    words = [w.encode() for w in _words]
+    tags = [t.encode() for t in _tags]
 
     assert len(words) == len(tags), "Words and tags lengths don't match"
 
     # Chars
-    chars = [[c.encode() for c in w] for w in line_words.strip().split()]
+    chars = [[c.encode() for c in w] for w in _words]
     lengths = [len(c) for c in chars]
     max_len = max(lengths)
-
     chars = [c + [b'<pad>'] * (max_len - l) for c, l in zip(chars, lengths)]
-
     return ((words, len(words)), (chars, lengths)), tags
 
 
@@ -65,7 +68,7 @@ def input_fn(words, tags, params=None, shuffle_and_repeat=False):
                ([None, None], [None])),  # (chars, nchars)
               [None])  # tags
     types = (((tf.string, tf.int32), (tf.string, tf.int32)), tf.string)
-    defaults = ((('<pad>', 0), ('<pad>', 0)), 'O')
+    defaults = ((('<pad>', 0), ('<pad>', 0)), '1')
     dataset = tf.data.Dataset.from_generator(functools.partial(generator_fn, words, tags),
                                              output_shapes=shapes, output_types=types)
 
@@ -90,7 +93,7 @@ def feature_layers(embeddings, reuse=True):
     # emeddings dim is [batch_size, max_seq_len, emb_dim]
 
     with tf.variable_scope("feature_layers", reuse=reuse):
-        input_size = params["dim_chars"] + params["dim"]  # word-embeddings + char-embeddings
+        input_size = params["char_filters"] + params["dim"]  # word-embeddings + char-embeddings-conv
 
         initial_filter_width = params["layers_map"]["conv0"]['width']
         initial_num_filters = params["layers_map"]["conv0"]['filters']
@@ -129,7 +132,8 @@ def feature_layers(embeddings, reuse=True):
             inner_last_dims = last_dims
             inner_last_output = last_output
             with tf.variable_scope("block" + block_name_suff, reuse=reuse_block):
-                for layer_name, layer in params["layers_map"]:
+                for layer_name, layer in params["layers_map"].items():
+                    if layer_name == "conv0": continue
                     dilation = layer['dilation']
                     filter_width = layer['width']
                     num_filters = layer['filters']
@@ -206,7 +210,7 @@ def feature_layers(embeddings, reuse=True):
                                                tf.stack([params["batch_size"], params["max_seq_len"],
                                                          params["num_classes"]]))
                     block_unflat_scores.append(unflat_scores)
-
+    print(block_unflat_scores[-1].shape)
     return block_unflat_scores, h_concat_squeeze, l2_loss
 
 
@@ -247,6 +251,7 @@ def model_fn(features, labels, mode, params):
     # Word Embeddings
     word_ids = vocab_words.lookup(words)
     glove = np.load(params['w2v'])['embeddings']  # np.array
+    print("glove shape", glove.shape)
     variable = np.vstack([glove, [[0.] * params['dim']]])  # [vob_size, emb_size]
     variable = tf.Variable(variable, dtype=tf.float32, trainable=False)
     word_embeddings = tf.nn.embedding_lookup(variable, word_ids)
@@ -256,9 +261,8 @@ def model_fn(features, labels, mode, params):
     embeddings = tf.layers.dropout(embeddings, rate=dropout, training=training)
 
     # block_unflat_scores shape: [batch_size, max_seq_len, class_num]
-    block_unflat_scores, _, l2_loss = feature_layers(embeddings, reuse=True)
-    pred_ids = tf.argmax(block_unflat_scores[-1], 2)
-
+    block_unflat_scores, _, l2_loss = feature_layers(embeddings, reuse=False)
+    pred_ids = tf.argmax(block_unflat_scores[-1], 2) 
     if mode == tf.estimator.ModeKeys.PREDICT:
         # Predictions
         reverse_vocab_tags = tf.contrib.lookup.index_to_string_table_from_file(
@@ -271,9 +275,11 @@ def model_fn(features, labels, mode, params):
         return tf.estimator.EstimatorSpec(mode, predictions=predictions)
     else:
         # Loss
-        input_mask = tf.ones(shape=[tf.shape(words)[0], params["max_seq_len"]], dtype=tf.int32)
-        for i, real_seq_len in enumerate(nwords):
-            input_mask[i, real_seq_len:] = 0
+        #input_mask = tf.ones(shape=[words.get_shape().as_list()[0], params["max_seq_len"]], dtype=tf.int32)
+        #input_mask = tf.ones_like(words,dtype=tf.int32)
+        input_mask = tf.sequence_mask(nwords, params["max_seq_len"],dtype=tf.float32)
+        #for i, real_seq_len in enumerate(nwords):
+        #    input_mask[i, real_seq_len:] = 0
 
         vocab_tags = tf.contrib.lookup.index_table_from_file(params['tags'])
         tags = vocab_tags.lookup(labels)
@@ -281,14 +287,20 @@ def model_fn(features, labels, mode, params):
         with tf.name_scope("loss"):
             loss = tf.constant(0.0)
             # labels = tf.cast(labels, 'int32')
-
-            losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=block_unflat_scores, labels=tags)
+            #block_unflat_scores = tf.Print(block_unflat_scores,[block_unflat_scores[-1].shape])
+            print(block_unflat_scores[-1].shape)
+            #tags = tf.Print(tags,[tags.shape]) 
+            losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=block_unflat_scores[-1], labels=tags)
             masked_losses = tf.multiply(losses, input_mask)
-            loss += tf.div(tf.reduce_sum(masked_losses), tf.reduce_sum(input_mask))
+            #loss += tf.div(tf.reduce_sum(masked_losses), tf.reduce_sum(input_mask))
+            loss += tf.reduce_sum(masked_losses)
             loss += params["l2_penalty"] * l2_loss
 
         # Metrics
         weights = tf.sequence_mask(nwords)
+        #tags_min = tf.reduce_min(tags)
+        #tags_min=tf.Print(tags_min,[tags_min], message="debug mertics tags_min")
+        #tags = tf.Print(tags,[tags,tags_min], message="debug mertics tags")
         metrics = {
             'acc': tf.metrics.accuracy(tags, pred_ids, weights),
             'precision': precision(tags, pred_ids, num_tags, indices, weights),
@@ -311,13 +323,17 @@ def model_fn(features, labels, mode, params):
 
 if __name__ == "__main__":
     # Params
-    layers_map = {'conv1': {'dilation': 1, 'width': 3, 'filters': 300, 'initialization': 'identity', 'take': False},
-                  'conv2': {'dilation': 2, 'width': 3, 'filters': 300, 'initialization': 'identity', 'take': False},
-                  'conv3': {'dilation': 1, 'width': 3, 'filters': 300, 'initialization': 'identity', 'take': True}}
+    layers_map = {
+                  'conv0': {'dilation': 1, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': False},
+                  'conv1': {'dilation': 1, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': False},
+                  'conv2': {'dilation': 2, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': False},
+                  'conv3': {'dilation': 1, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': True}}
     params = {
-        'dim_chars': 100,
-        'dim': 300,
-        'dropout': 0.5,
+        'dim_chars': 50,
+        'dim': 100,
+        'dropout': 0.5, 
+        "middle_dropout_keep_prob":1,
+        "hidden_dropout_keep_prob":0.85,
         'num_oov_buckets': 1,
         'epochs': 25,
         'batch_size': 20,
@@ -331,7 +347,8 @@ if __name__ == "__main__":
         "projection": False,
         "num_classes": 2,
         "block_repeats": 1,
-
+        "share_repeats":True,
+        "nonlinearity":"relu",
         'words': str(Path(DATADIR, 'vocab.words.txt')),
         'chars': str(Path(DATADIR, 'vocab.chars.txt')),
         'tags': str(Path(DATADIR, 'vocab.tags.txt')),
@@ -352,7 +369,7 @@ if __name__ == "__main__":
     # Estimator, train and evaluate
     train_inpf = functools.partial(input_fn, fwords('train'), ftags('train'),
                                    params, shuffle_and_repeat=True)
-    eval_inpf = functools.partial(input_fn, fwords('testa'), ftags('testa'))
+    eval_inpf = functools.partial(input_fn, fwords('test'), ftags('test'))
 
     cfg = tf.estimator.RunConfig(save_checkpoints_secs=120)
     estimator = tf.estimator.Estimator(model_fn, 'results/model', cfg, params)
@@ -378,5 +395,5 @@ if __name__ == "__main__":
                 f.write(b'\n')
 
 
-    for name in ['train', 'testa', 'testb']:
+    for name in ['train', 'test']:
         write_predictions(name)
