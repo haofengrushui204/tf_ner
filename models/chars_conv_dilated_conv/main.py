@@ -12,6 +12,7 @@ from pathlib import Path
 import sys
 import numpy as np
 import tensorflow as tf
+
 sys.path.append(".")
 sys.path.append("..")
 from tf_metrics import precision, recall, f1
@@ -40,9 +41,9 @@ def parse_fn(line_words, line_tags):
         _words += ['<pad>'] * (max_len - nwords)
         _tags += ['1'] * (max_len - nwords)
     elif nwords > max_len:
-        _words = words[:max_len]
-        _tags = tags[:max_len]
- 
+        _words = _words[:max_len]
+        _tags = _tags[:max_len]
+
     words = [w.encode() for w in _words]
     tags = [t.encode() for t in _tags]
 
@@ -75,9 +76,12 @@ def input_fn(words, tags, params=None, shuffle_and_repeat=False):
     if shuffle_and_repeat:
         dataset = dataset.shuffle(params['buffer']).repeat(params['epochs'])
 
-    dataset = (dataset
-               .padded_batch(params.get('batch_size', 20), shapes, defaults)
-               .prefetch(1))
+    # dataset = (dataset
+    #            .padded_batch_and_drop_remainder(params.get('batch_size', 20), shapes, defaults)
+    #            .prefetch(1))
+    dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(params.get('batch_size', 20)))
+
+
     return dataset
 
 
@@ -262,7 +266,7 @@ def model_fn(features, labels, mode, params):
 
     # block_unflat_scores shape: [batch_size, max_seq_len, class_num]
     block_unflat_scores, _, l2_loss = feature_layers(embeddings, reuse=False)
-    pred_ids = tf.argmax(block_unflat_scores[-1], 2) 
+    pred_ids = tf.argmax(block_unflat_scores[-1], 2)
     if mode == tf.estimator.ModeKeys.PREDICT:
         # Predictions
         reverse_vocab_tags = tf.contrib.lookup.index_to_string_table_from_file(
@@ -275,10 +279,10 @@ def model_fn(features, labels, mode, params):
         return tf.estimator.EstimatorSpec(mode, predictions=predictions)
     else:
         # Loss
-        #input_mask = tf.ones(shape=[words.get_shape().as_list()[0], params["max_seq_len"]], dtype=tf.int32)
-        #input_mask = tf.ones_like(words,dtype=tf.int32)
-        input_mask = tf.sequence_mask(nwords, params["max_seq_len"],dtype=tf.float32)
-        #for i, real_seq_len in enumerate(nwords):
+        # input_mask = tf.ones(shape=[words.get_shape().as_list()[0], params["max_seq_len"]], dtype=tf.int32)
+        # input_mask = tf.ones_like(words,dtype=tf.int32)
+        input_mask = tf.sequence_mask(nwords, params["max_seq_len"], dtype=tf.float32)
+        # for i, real_seq_len in enumerate(nwords):
         #    input_mask[i, real_seq_len:] = 0
 
         vocab_tags = tf.contrib.lookup.index_table_from_file(params['tags'])
@@ -287,20 +291,20 @@ def model_fn(features, labels, mode, params):
         with tf.name_scope("loss"):
             loss = tf.constant(0.0)
             # labels = tf.cast(labels, 'int32')
-            #block_unflat_scores = tf.Print(block_unflat_scores,[block_unflat_scores[-1].shape])
+            # block_unflat_scores = tf.Print(block_unflat_scores,[block_unflat_scores[-1].shape])
             print(block_unflat_scores[-1].shape)
-            #tags = tf.Print(tags,[tags.shape]) 
+            # tags = tf.Print(tags,[tags.shape])
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=block_unflat_scores[-1], labels=tags)
             masked_losses = tf.multiply(losses, input_mask)
-            #loss += tf.div(tf.reduce_sum(masked_losses), tf.reduce_sum(input_mask))
+            # loss += tf.div(tf.reduce_sum(masked_losses), tf.reduce_sum(input_mask))
             loss += tf.reduce_sum(masked_losses)
             loss += params["l2_penalty"] * l2_loss
 
         # Metrics
         weights = tf.sequence_mask(nwords)
-        #tags_min = tf.reduce_min(tags)
-        #tags_min=tf.Print(tags_min,[tags_min], message="debug mertics tags_min")
-        #tags = tf.Print(tags,[tags,tags_min], message="debug mertics tags")
+        # tags_min = tf.reduce_min(tags)
+        # tags_min=tf.Print(tags_min,[tags_min], message="debug mertics tags_min")
+        # tags = tf.Print(tags,[tags,tags_min], message="debug mertics tags")
         metrics = {
             'acc': tf.metrics.accuracy(tags, pred_ids, weights),
             'precision': precision(tags, pred_ids, num_tags, indices, weights),
@@ -324,16 +328,16 @@ def model_fn(features, labels, mode, params):
 if __name__ == "__main__":
     # Params
     layers_map = {
-                  'conv0': {'dilation': 1, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': False},
-                  'conv1': {'dilation': 1, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': False},
-                  'conv2': {'dilation': 2, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': False},
-                  'conv3': {'dilation': 1, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': True}}
+        'conv0': {'dilation': 1, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': False},
+        'conv1': {'dilation': 1, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': False},
+        'conv2': {'dilation': 2, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': False},
+        'conv3': {'dilation': 1, 'width': 3, 'filters': 100, 'initialization': 'identity', 'take': True}}
     params = {
         'dim_chars': 50,
         'dim': 100,
-        'dropout': 0.5, 
-        "middle_dropout_keep_prob":1,
-        "hidden_dropout_keep_prob":0.85,
+        'dropout': 0.5,
+        "middle_dropout_keep_prob": 1,
+        "hidden_dropout_keep_prob": 0.85,
         'num_oov_buckets': 1,
         'epochs': 25,
         'batch_size': 20,
@@ -347,8 +351,8 @@ if __name__ == "__main__":
         "projection": False,
         "num_classes": 2,
         "block_repeats": 1,
-        "share_repeats":True,
-        "nonlinearity":"relu",
+        "share_repeats": True,
+        "nonlinearity": "relu",
         'words': str(Path(DATADIR, 'vocab.words.txt')),
         'chars': str(Path(DATADIR, 'vocab.chars.txt')),
         'tags': str(Path(DATADIR, 'vocab.tags.txt')),

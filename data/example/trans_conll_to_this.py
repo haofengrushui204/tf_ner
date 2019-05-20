@@ -44,7 +44,7 @@ def trans_zero_one_label(tags_path, tags01_path):
                 while i < len(tags):
                     if tags[i].startswith("B-"):
                         label = tags[i].split("-")[-1]
-                        j = i+1
+                        j = i + 1
                         while j < len(tags) and tags[j] == "I-" + label:
                             j += 1
                             new_tags.append("0")
@@ -54,6 +54,19 @@ def trans_zero_one_label(tags_path, tags01_path):
                         new_tags.append("1")
                         i += 1
                 file_write.write(" ".join(new_tags) + "\n")
+
+
+def merge_entity(data_path, tags_path, data_new_path, tags_new_path):
+    with open(tags_path, "r", encoding="utf8") as file_tags_read, open(data_path, "r",
+                                                                       encoding="utf8") as file_words_read:
+        tags = [line.strip().split() for line in file_tags_read]
+        words = [line.strip().split() for line in file_words_read]
+
+    with open(tags_new_path, "w", encoding="utf8") as file_tags_write, \
+            open(data_new_path, "w", encoding="utf8") as file_words_write:
+        for idx, (ws,ts) in enumerate(zip(words, tags)):
+
+
 
 
 def trans_pred(data_path, ptags_path, words_path):
