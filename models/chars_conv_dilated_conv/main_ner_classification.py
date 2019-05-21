@@ -31,7 +31,9 @@ def parse_fn(line_words, line_tags):
     # Encode in Bytes for TF
     words = [w.encode() for w in line_words.strip().split()]
     tags = [t.encode() for t in line_tags.strip().split()]
+    words_with_entity = []
     assert len(words) == len(tags), "Words and tags lengths don't match " + line_words + " tag " + line_tags
+
     return (words, len(words)), tags
 
 
@@ -70,16 +72,15 @@ def model_fn(features, labels, mode, params):
     words, nwords = features
     training = (mode == tf.estimator.ModeKeys.TRAIN)
     vocab_words = tf.contrib.lookup.index_table_from_file(params['words'], num_oov_buckets=params['num_oov_buckets'])
-    vocab_chars = tf.contrib.lookup.index_table_from_file(params['chars'], num_oov_buckets=params['num_oov_buckets'])
     with Path(params['tags']).open() as f:
         indices = [idx for idx, tag in enumerate(f) if tag.strip() != 'O']
         num_tags = len(indices) + 1
 
     # words 1d convolution for entity embeddings
     # 先对输入的words 左一层 con1d，保持 当个 word 的向量，同时可以构造 entity（多个word)的向量
-    # weights = tf.sequence_mask(nchars)
-    # char_embeddings = masked_conv1d_and_max(
-    #     words, weights, params['char_filters'], params['char_kernel_size'])
+    weights = tf.sequence_mask(nchars)
+    words_with_entity_embeddings = masked_conv1d_and_max(
+        words, weights, params['char_filters'], params['char_kernel_size'])
 
     # Word Embeddings
     word_ids = vocab_words.lookup(words)
