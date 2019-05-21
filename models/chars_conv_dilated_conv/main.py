@@ -43,6 +43,7 @@ def parse_fn(line_words, line_tags):
     elif nwords > max_len:
         _words = _words[:max_len]
         _tags = _tags[:max_len]
+        nwords = max_len
 
     words = [w.encode() for w in _words]
     tags = [t.encode() for t in _tags]
@@ -54,7 +55,9 @@ def parse_fn(line_words, line_tags):
     lengths = [len(c) for c in chars]
     max_len = max(lengths)
     chars = [c + [b'<pad>'] * (max_len - l) for c, l in zip(chars, lengths)]
-    return ((words, len(words)), (chars, lengths)), tags
+    if nwords > params["max_seq_len"]:
+        print(nwords)
+    return ((words, nwords), (chars, lengths)), tags
 
 
 def generator_fn(words, tags):
@@ -65,7 +68,7 @@ def generator_fn(words, tags):
 
 def input_fn(words, tags, params=None, shuffle_and_repeat=False):
     params = params if params is not None else {}
-    shapes = ((([None], ()),  # (words, nwords)
+    shapes = ((([None], params["max_seq_len"]),  # (words, nwords)
                ([None, None], [None])),  # (chars, nchars)
               [None])  # tags
     types = (((tf.string, tf.int32), (tf.string, tf.int32)), tf.string)
@@ -75,6 +78,7 @@ def input_fn(words, tags, params=None, shuffle_and_repeat=False):
 
     if shuffle_and_repeat:
         dataset = dataset.shuffle(params['buffer']).repeat(params['epochs'])
+
 
     dataset = (dataset
                .padded_batch(params.get('batch_size', 20), shapes, defaults, drop_remainder=True)
@@ -160,6 +164,7 @@ def feature_layers(embeddings, reuse=True):
                         #                             self.batch_size, max_seq_len, 0, self.training)
 
                         # conv shape: [batch, height, width, out_channels] -> [batch_size, 1, max_seq_len, last_dims]
+                        print(inner_last_output.shape)
                         conv = tf.nn.atrous_conv2d(inner_last_output, w, rate=dilation, padding="SAME", name=layer_name)
                         conv_b = tf.nn.bias_add(conv, b)
                         # h shape: [batch_size, 1, max_seq_len, last_dims]
@@ -300,7 +305,7 @@ def model_fn(features, labels, mode, params):
             loss += params["l2_penalty"] * l2_loss
 
         # Metrics
-        weights = tf.sequence_mask(nwords)
+        weights = tf.sequence_mask(nwords, params["max_seq_len"])
         # tags_min = tf.reduce_min(tags)
         # tags_min=tf.Print(tags_min,[tags_min], message="debug mertics tags_min")
         # tags = tf.Print(tags,[tags,tags_min], message="debug mertics tags")
