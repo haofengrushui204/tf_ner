@@ -101,9 +101,12 @@ def model_fn(features, labels, mode, params):
     output = tf.layers.dropout(output, rate=dropout, training=training)
 
     # CRF
-    logits = tf.layers.dense(output, num_tags)
-    crf_params = tf.get_variable("crf", [num_tags, num_tags], dtype=tf.float32)
-    pred_ids, pred_scores = tf.contrib.crf.crf_decode(logits, crf_params, nwords)
+    logits = tf.layers.dense(output, num_tags) # [batch_size, max_seq_len, num_tags]
+    pred_ids = tf.argmax(logits, -1)
+
+    # crf_params = tf.get_variable("crf", [num_tags, num_tags], dtype=tf.float32)
+    # pred_ids, pred_scores = tf.contrib.crf.crf_decode(logits, crf_params, nwords)
+    input_mask = tf.sequence_mask(nwords, params["max_seq_len"], dtype=tf.float32)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
         # Predictions
@@ -113,16 +116,20 @@ def model_fn(features, labels, mode, params):
         predictions = {
             'pred_ids': pred_ids,
             'tags': pred_strings,
-            "scores": pred_scores
+            # "scores": pred_scores
         }
         return tf.estimator.EstimatorSpec(mode, predictions=predictions)
     else:
         # Loss
         vocab_tags = tf.contrib.lookup.index_table_from_file(params['tags'])
         tags = vocab_tags.lookup(labels)
-        log_likelihood, _ = tf.contrib.crf.crf_log_likelihood(
-            logits, tags, nwords, crf_params)
-        loss = tf.reduce_mean(-log_likelihood)
+        # log_likelihood, _ = tf.contrib.crf.crf_log_likelihood(
+        #     logits, tags, nwords, crf_params)
+        # loss = tf.reduce_mean(-log_likelihood)
+        losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=tags)
+        masked_losses = tf.multiply(losses, input_mask)
+        # loss += tf.div(tf.reduce_sum(masked_losses), tf.reduce_sum(input_mask))
+        loss = tf.reduce_sum(masked_losses)
 
         # Metrics
         weights = tf.sequence_mask(nwords)
