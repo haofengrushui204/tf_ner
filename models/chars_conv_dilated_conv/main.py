@@ -76,11 +76,10 @@ def input_fn(words, tags, params=None, shuffle_and_repeat=False):
     if shuffle_and_repeat:
         dataset = dataset.shuffle(params['buffer']).repeat(params['epochs'])
 
-    # dataset = (dataset
-    #            .padded_batch_and_drop_remainder(params.get('batch_size', 20), shapes, defaults)
-    #            .prefetch(1))
-    dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(params.get('batch_size', 20)))
-
+    dataset = (dataset
+               .padded_batch(params.get('batch_size', 20), shapes, defaults, drop_remainder=True)
+               .prefetch(1))
+    # dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(params.get('batch_size', 20)))
 
     return dataset
 
