@@ -57,16 +57,38 @@ def trans_zero_one_label(tags_path, tags01_path):
 
 
 def merge_entity(data_path, tags_path, data_new_path, tags_new_path):
-    with open(tags_path, "r", encoding="utf8") as file_tags_read, open(data_path, "r",
-                                                                       encoding="utf8") as file_words_read:
+    with open(tags_path, "r", encoding="utf8") as file_tags_read, \
+            open(data_path, "r", encoding="utf8") as file_words_read:
         tags = [line.strip().split() for line in file_tags_read]
         words = [line.strip().split() for line in file_words_read]
 
     with open(tags_new_path, "w", encoding="utf8") as file_tags_write, \
             open(data_new_path, "w", encoding="utf8") as file_words_write:
-        for idx, (ws,ts) in enumerate(zip(words, tags)):
+        entity = ""
+        label = ""
 
-
+        for ws, ts in zip(words, tags):
+            new_ws, new_ts = [], []
+            for w, t in zip(ws, ts):
+                if t.startswith("B-") and len(entity) == 0:
+                    entity = w
+                    label = t.split("-")[-1]
+                elif t.startswith("B-"):
+                    new_ts.append(entity)
+                    new_ts.append(label)
+                    entity = w
+                    label = t.split("-")[-1]
+                elif t.startswith("I-"):
+                    entity += w
+                elif t == "O":
+                    if len(entity) > 0:
+                        new_ts.append(entity)
+                        new_ts.append(label)
+                    entity, label = "", ""
+                    new_ts.append("O")
+                    new_ws.append(w)
+                file_words_write.write(" ".join(new_ws) + "\n")
+                file_tags_write.write(" ".join(new_ts) + "\n")
 
 
 def trans_pred(data_path, ptags_path, words_path):
