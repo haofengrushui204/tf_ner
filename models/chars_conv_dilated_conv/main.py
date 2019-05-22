@@ -19,7 +19,7 @@ from tf_metrics import precision, recall, f1
 import tf_utils
 from masked_conv import masked_conv1d_and_max
 
-DATADIR = '/data/kongyy/nlp/tf_ner_guillaumegenthial/example/10002/'
+DATADIR = '/data/kongyy/nlp/tf_ner_guillaumegenthial/example/10003/'
 
 # Logging
 Path('results').mkdir(exist_ok=True)
@@ -68,7 +68,7 @@ def generator_fn(words, tags):
 
 def input_fn(words, tags, params=None, shuffle_and_repeat=False):
     params = params if params is not None else {}
-    shapes = ((([None], params["max_seq_len"]),  # (words, nwords)
+    shapes = ((([None], ()),  # (words, nwords)
                ([None, None], [None])),  # (chars, nchars)
               [None])  # tags
     types = (((tf.string, tf.int32), (tf.string, tf.int32)), tf.string)
@@ -285,8 +285,10 @@ def model_fn(features, labels, mode, params):
         # Loss
         # input_mask = tf.ones(shape=[words.get_shape().as_list()[0], params["max_seq_len"]], dtype=tf.int32)
         # input_mask = tf.ones_like(words,dtype=tf.int32)
-        input_mask = tf.sequence_mask(nwords, params["max_seq_len"], dtype=tf.float32)
         # for i, real_seq_len in enumerate(nwords):
+        #    input_mask[i, real_seq_len:] = 0
+        # input_mask = np.zeros((params["batch_size"], params["max_seq_len"])).astype("int")
+        # for i, real_seq_len in enumerate(nwords.eval()):
         #    input_mask[i, real_seq_len:] = 0
 
         vocab_tags = tf.contrib.lookup.index_table_from_file(params['tags'])
@@ -296,16 +298,16 @@ def model_fn(features, labels, mode, params):
             loss = tf.constant(0.0)
             # labels = tf.cast(labels, 'int32')
             # block_unflat_scores = tf.Print(block_unflat_scores,[block_unflat_scores[-1].shape])
-            print(block_unflat_scores[-1].shape)
+            # print(block_unflat_scores[-1].shape)
             # tags = tf.Print(tags,[tags.shape])
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=block_unflat_scores[-1], labels=tags)
-            masked_losses = tf.multiply(losses, input_mask)
+            # masked_losses = tf.multiply(losses, input_mask)
             # loss += tf.div(tf.reduce_sum(masked_losses), tf.reduce_sum(input_mask))
-            loss += tf.reduce_sum(masked_losses)
+            loss += tf.reduce_sum(loss)
             loss += params["l2_penalty"] * l2_loss
 
         # Metrics
-        weights = tf.sequence_mask(nwords, params["max_seq_len"])
+        weights = tf.sequence_mask(nwords)
         # tags_min = tf.reduce_min(tags)
         # tags_min=tf.Print(tags_min,[tags_min], message="debug mertics tags_min")
         # tags = tf.Print(tags,[tags,tags_min], message="debug mertics tags")
