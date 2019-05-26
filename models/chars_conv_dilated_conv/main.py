@@ -30,6 +30,9 @@ handlers = [
 ]
 logging.getLogger('tensorflow').handlers = handlers
 
+window_size = 3
+pad_width = int(window_size / 2)
+
 
 def parse_fn(line_words, line_tags):
     # Encode in Bytes for TF
@@ -37,26 +40,43 @@ def parse_fn(line_words, line_tags):
     _tags = line_tags.strip().split()
     nwords = len(_words)
     max_len = params["max_seq_len"]
-    if nwords < max_len:
-        _words += ['<pad>'] * (max_len - nwords)
-        _tags += ['1'] * (max_len - nwords)
-    elif nwords > max_len:
+    # if nwords < max_len:
+    #     _words += ['<pad>'] * (max_len - nwords)
+    #     _tags += ['1'] * (max_len - nwords)
+    # elif nwords > max_len:
+    #     _words = _words[:max_len]
+    #     _tags = _tags[:max_len]
+    #     nwords = max_len
+
+    if nwords > max_len:
         _words = _words[:max_len]
         _tags = _tags[:max_len]
         nwords = max_len
 
     words = [w.encode() for w in _words]
     tags = [t.encode() for t in _tags]
+    # 限定了 dilate rate = 2
+    # if nwords % 2 == 1:
+    #     words.append(b"<pad>")
+    #     tags.append(b"1")
+    #     nwords += 1
 
     assert len(words) == len(tags), "Words and tags lengths don't match"
+    # assert len(words) == params["max_seq_len"], "Words lengths don't match max_seq_len"
 
     # Chars
     chars = [[c.encode() for c in w] for w in _words]
+    # if len(_words) < len(words):
+    #     chars.append([b'<pad>'] * (len(words) - len(_words)))
     lengths = [len(c) for c in chars]
     max_len = max(lengths)
     chars = [c + [b'<pad>'] * (max_len - l) for c, l in zip(chars, lengths)]
-    if nwords > params["max_seq_len"]:
-        print(nwords)
+
+    # if nwords % 2 == 1 or len(words) % 2 == 1:
+    #     print(nwords)
+
+    # print(nwords)
+
     return ((words, nwords), (chars, lengths)), tags
 
 
@@ -72,17 +92,18 @@ def input_fn(words, tags, params=None, shuffle_and_repeat=False):
                ([None, None], [None])),  # (chars, nchars)
               [None])  # tags
     types = (((tf.string, tf.int32), (tf.string, tf.int32)), tf.string)
-    defaults = ((('<pad>', 0), ('<pad>', 0)), '1')
+    defaults = (((b'<pad>', 0), (b'<pad>', 0)), b'1')
     dataset = tf.data.Dataset.from_generator(functools.partial(generator_fn, words, tags),
                                              output_shapes=shapes, output_types=types)
 
     if shuffle_and_repeat:
         dataset = dataset.shuffle(params['buffer']).repeat(params['epochs'])
 
-
+    # dataset = dataset.batch(params.get("batch_size", 20), drop_remainder=True)
     dataset = (dataset
-               .padded_batch(params.get('batch_size', 20), shapes, defaults, drop_remainder=True)
+               .padded_batch(params.get('batch_size', 20), shapes, defaults)#, drop_remainder=True)
                .prefetch(1))
+
     # dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(params.get('batch_size', 20)))
 
     return dataset
@@ -128,6 +149,7 @@ def feature_layers(embeddings, reuse=True):
 
         # Stacked atrous convolutions
         last_output = tf.concat(axis=3, values=initial_inputs)  # [batch_size, 1, max_seq_len, last_dims]
+        layer_name_sorted = sorted(params["layers_map"].keys())
 
         for block in range(params["block_repeats"]):
             print("last out shape", last_output.get_shape())
@@ -139,8 +161,10 @@ def feature_layers(embeddings, reuse=True):
             inner_last_dims = last_dims
             inner_last_output = last_output
             with tf.variable_scope("block" + block_name_suff, reuse=reuse_block):
-                for layer_name, layer in params["layers_map"].items():
+                for layer_name in layer_name_sorted:
+                    # for layer_name, layer in params["layers_map"].items():
                     if layer_name == "conv0": continue
+                    layer = layers_map[layer_name]
                     dilation = layer['dilation']
                     filter_width = layer['width']
                     num_filters = layer['filters']
@@ -164,7 +188,6 @@ def feature_layers(embeddings, reuse=True):
                         #                             self.batch_size, max_seq_len, 0, self.training)
 
                         # conv shape: [batch, height, width, out_channels] -> [batch_size, 1, max_seq_len, last_dims]
-                        print(inner_last_output.shape)
                         conv = tf.nn.atrous_conv2d(inner_last_output, w, rate=dilation, padding="SAME", name=layer_name)
                         conv_b = tf.nn.bias_add(conv, b)
                         # h shape: [batch_size, 1, max_seq_len, last_dims]
@@ -174,9 +197,6 @@ def feature_layers(embeddings, reuse=True):
                         if take_layer:
                             hidden_outputs.append(h)
                             total_output_width += num_filters
-                        else:
-                            hidden_outputs = [h]
-                            total_output_width = num_filters
                         inner_last_dims = num_filters
                         inner_last_output = h
 
@@ -215,10 +235,8 @@ def feature_layers(embeddings, reuse=True):
                     l2_loss += tf.nn.l2_loss(b_o)
                     scores = tf.nn.xw_plus_b(input_to_pred_drop, w_o, b_o, name="scores")
                     unflat_scores = tf.reshape(scores,
-                                               tf.stack([params["batch_size"], params["max_seq_len"],
-                                                         params["num_classes"]]))
+                                               tf.stack([params["batch_size"], -1, params["num_classes"]]))
                     block_unflat_scores.append(unflat_scores)
-    print(block_unflat_scores[-1].shape)
     return block_unflat_scores, h_concat_squeeze, l2_loss
 
 
@@ -268,6 +286,9 @@ def model_fn(features, labels, mode, params):
     embeddings = tf.concat([word_embeddings, char_embeddings], axis=-1)
     embeddings = tf.layers.dropout(embeddings, rate=dropout, training=training)
 
+    # sess = tf.InteractiveSession()
+    # emb_shape = sess.run(tf.shape(embeddings))
+    # print("-"*50,'emb_shape:',emb_shape)
     # block_unflat_scores shape: [batch_size, max_seq_len, class_num]
     block_unflat_scores, _, l2_loss = feature_layers(embeddings, reuse=False)
     pred_ids = tf.argmax(block_unflat_scores[-1], 2)
@@ -303,7 +324,7 @@ def model_fn(features, labels, mode, params):
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=block_unflat_scores[-1], labels=tags)
             # masked_losses = tf.multiply(losses, input_mask)
             # loss += tf.div(tf.reduce_sum(masked_losses), tf.reduce_sum(input_mask))
-            loss += tf.reduce_sum(loss)
+            loss += tf.reduce_sum(losses)
             loss += params["l2_penalty"] * l2_loss
 
         # Metrics
